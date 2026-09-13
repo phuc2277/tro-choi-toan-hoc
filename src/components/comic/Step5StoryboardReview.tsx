@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ComicScene, ComicFrame, CharacterProfile } from '../../types/comicLesson';
+import { ComicScene, ComicFrame, CharacterProfile, LessonKnowledgeProfile, PedagogicalAuditReport } from '../../types/comicLesson';
 import { StoryboardFrameModal } from './StoryboardFrameModal';
 import { StoryboardSceneModal } from './StoryboardSceneModal';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
@@ -13,6 +13,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   ArrowRight,
   Filter,
   LayoutGrid,
@@ -27,6 +28,9 @@ import {
   MessageSquare,
   Clock,
   Check,
+  ShieldCheck,
+  Wand2,
+  X,
 } from 'lucide-react';
 
 interface Step5StoryboardReviewProps {
@@ -35,6 +39,7 @@ interface Step5StoryboardReviewProps {
   onUpdateScenes: (scenes: ComicScene[]) => void;
   onNextStep: () => void;
   onPrevStep: () => void;
+  knowledgeProfile?: LessonKnowledgeProfile;
 }
 
 export const Step5StoryboardReview: React.FC<Step5StoryboardReviewProps> = ({
@@ -43,7 +48,17 @@ export const Step5StoryboardReview: React.FC<Step5StoryboardReviewProps> = ({
   onUpdateScenes,
   onNextStep,
   onPrevStep,
+  knowledgeProfile,
 }) => {
+  // AI Storyboard generation state (per-scene)
+  const [generatingSceneId, setGeneratingSceneId] = useState<string | null>(null);
+  const [storyboardGenError, setStoryboardGenError] = useState<string | null>(null);
+
+  // AI Quality Check state (Step 8 of the pipeline: kiểm tra chất lượng & nhất quán)
+  const [isCheckingQuality, setIsCheckingQuality] = useState(false);
+  const [qualityError, setQualityError] = useState<string | null>(null);
+  const [pedagogicalAudit, setPedagogicalAudit] = useState<PedagogicalAuditReport | null>(null);
+  const [showAuditPanel, setShowAuditPanel] = useState(false);
   // View mode: 'grid' (visual cards) or 'table' (pedagogical checklist)
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
@@ -177,6 +192,83 @@ export const Step5StoryboardReview: React.FC<Step5StoryboardReviewProps> = ({
     setTargetSceneForFrame(scene);
     setTargetFrameForEdit(null);
     setIsFrameModalOpen(true);
+  };
+
+  // AI: sinh hàng loạt khung hình (storyboard) cho một cảnh dựa trên kịch bản đã viết
+  const handleAiGenerateStoryboard = async (scene: ComicScene) => {
+    setGeneratingSceneId(scene.sceneId);
+    setStoryboardGenError(null);
+    try {
+      const res = await fetch('/api/comic/generate-storyboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scene,
+          characters,
+          knowledgeProfile,
+          frameCount: Math.max(2, Math.min(4, Math.round(scene.estimatedDurationSec / 12))),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.frames) && data.frames.length > 0) {
+        const updated = scenes.map((s) =>
+          s.sceneId === scene.sceneId ? { ...s, frames: data.frames } : s
+        );
+        onUpdateScenes(updated);
+      } else {
+        setStoryboardGenError(data.error || `AI không thể tạo storyboard cho ${scene.sceneId}. Vui lòng thử lại.`);
+      }
+    } catch {
+      setStoryboardGenError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setGeneratingSceneId(null);
+    }
+  };
+
+  // AI: kiểm tra chất lượng & tính nhất quán toàn bộ truyện trước khi sang Bước 6 (tạo tranh)
+  const handleAiQualityCheck = async () => {
+    if (!knowledgeProfile) {
+      setQualityError('Thiếu hồ sơ kiến thức bài học để đối chiếu.');
+      return;
+    }
+    if (totalFramesCount === 0) {
+      setQualityError('Cần có ít nhất một khung hình trong storyboard trước khi kiểm tra chất lượng.');
+      return;
+    }
+    setIsCheckingQuality(true);
+    setQualityError(null);
+    try {
+      const res = await fetch('/api/comic/quality-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ knowledgeProfile, characters, scenes }),
+      });
+      const data = await res.json();
+      if (res.ok && data.pedagogicalAudit) {
+        setPedagogicalAudit(data.pedagogicalAudit);
+        setShowAuditPanel(true);
+        // Gắn kết quả nhất quán vào từng khung hình tương ứng
+        if (Array.isArray(data.frameChecks)) {
+          const checkMap: Record<string, any> = {};
+          data.frameChecks.forEach((fc: any) => {
+            checkMap[fc.frameId] = fc.consistencyCheck;
+          });
+          const updated = scenes.map((s) => ({
+            ...s,
+            frames: s.frames.map((f) =>
+              checkMap[f.frameId] ? { ...f, consistencyCheck: checkMap[f.frameId] } : f
+            ),
+          }));
+          onUpdateScenes(updated);
+        }
+      } else {
+        setQualityError(data.error || 'AI không thể kiểm tra chất lượng lúc này. Vui lòng thử lại.');
+      }
+    } catch {
+      setQualityError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setIsCheckingQuality(false);
+    }
   };
 
   // Open Frame Modal to Edit
@@ -386,9 +478,92 @@ export const Step5StoryboardReview: React.FC<Step5StoryboardReviewProps> = ({
               <CheckSquare className="w-4 h-4" />
               <span>Phê Duyệt Tất Cả ({totalFramesCount})</span>
             </button>
+
+            <button
+              onClick={handleAiQualityCheck}
+              disabled={isCheckingQuality}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-900/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+              title="AI kiểm tra chính xác kiến thức & tính nhất quán nhân vật, bối cảnh"
+            >
+              <ShieldCheck className={`w-4 h-4 ${isCheckingQuality ? 'animate-pulse' : ''}`} />
+              <span>{isCheckingQuality ? 'AI Đang Kiểm Tra...' : 'Kiểm Tra Chất Lượng AI'}</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {(qualityError || storyboardGenError) && (
+        <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-medium">
+          {qualityError || storyboardGenError}
+        </div>
+      )}
+
+      {/* AI Pedagogical & Consistency Audit Panel */}
+      {showAuditPanel && pedagogicalAudit && (
+        <div className="eduverse-glass p-5 rounded-2xl border border-purple-500/30 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-white flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-purple-400" />
+              Báo Cáo Kiểm Tra Chất Lượng &amp; Nhất Quán (AI)
+            </h3>
+            <button onClick={() => setShowAuditPanel(false)} className="text-slate-500 hover:text-white cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 text-center">
+              <span className="text-lg font-black text-cyan-400">{pedagogicalAudit.conceptClarityScore}</span>
+              <p className="text-[10px] text-slate-400 uppercase mt-0.5">Rõ Ràng Khái Niệm</p>
+            </div>
+            <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 text-center">
+              <span className="text-lg font-black text-amber-400">{pedagogicalAudit.engagementScore ?? '—'}</span>
+              <p className="text-[10px] text-slate-400 uppercase mt-0.5">Độ Hấp Dẫn</p>
+            </div>
+            <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 text-center">
+              <span className="text-lg font-black text-emerald-400">{pedagogicalAudit.comprehensionScore ?? '—'}</span>
+              <p className="text-[10px] text-slate-400 uppercase mt-0.5">Dễ Hiểu / Ghi Nhớ</p>
+            </div>
+            <div
+              className={`p-3 rounded-xl border text-center ${
+                pedagogicalAudit.approvedForClassroom
+                  ? 'bg-emerald-950/40 border-emerald-500/40'
+                  : 'bg-rose-950/40 border-rose-500/40'
+              }`}
+            >
+              <span className={`text-lg font-black ${pedagogicalAudit.approvedForClassroom ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {pedagogicalAudit.approvedForClassroom ? 'ĐẠT' : 'CẦN SỬA'}
+              </span>
+              <p className="text-[10px] text-slate-400 uppercase mt-0.5">Sẵn Sàng Lên Lớp</p>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-300 leading-relaxed">{pedagogicalAudit.pedagogyRemarks}</p>
+
+          {pedagogicalAudit.suggestions?.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-cyan-300 uppercase">Gợi Ý Cải Thiện:</span>
+              {pedagogicalAudit.suggestions.map((s, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-xs text-slate-300">
+                  <Wand2 className="w-3.5 h-3.5 text-cyan-400 mt-0.5 shrink-0" />
+                  <span>{s}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pedagogicalAudit.warnings && pedagogicalAudit.warnings.length > 0 && (
+            <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 space-y-1.5">
+              <span className="text-[11px] font-bold text-rose-300 uppercase flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Cảnh Báo Cần Xử Lý:
+              </span>
+              {pedagogicalAudit.warnings.map((w, idx) => (
+                <p key={idx} className="text-xs text-rose-200">{w}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filter, Search & View Switcher Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-900/90 rounded-2xl border border-slate-800 shadow-md">
@@ -564,6 +739,17 @@ export const Step5StoryboardReview: React.FC<Step5StoryboardReviewProps> = ({
                           <span>Duyệt Cảnh</span>
                         </button>
                       )}
+
+                      {/* AI Generate Storyboard Frames for this Scene */}
+                      <button
+                        onClick={() => handleAiGenerateStoryboard(scene)}
+                        disabled={generatingSceneId === scene.sceneId}
+                        className="px-2.5 py-1.5 rounded-lg bg-purple-950/60 hover:bg-purple-900 text-purple-300 text-xs font-bold border border-purple-800/60 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-60"
+                        title={scene.frames.length > 0 ? 'AI tạo lại toàn bộ khung hình của cảnh này' : 'AI tự động chia cảnh thành các khung hình'}
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${generatingSceneId === scene.sceneId ? 'animate-spin' : ''}`} />
+                        <span>{generatingSceneId === scene.sceneId ? 'Đang Tạo...' : scene.frames.length > 0 ? 'AI Tạo Lại' : 'AI Tạo Storyboard'}</span>
+                      </button>
 
                       {/* Add Frame to Scene */}
                       <button

@@ -29,26 +29,32 @@ export const Step2StoryKernel: React.FC<Step2StoryKernelProps> = ({
   onPrevStep,
 }) => {
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
-  // AI Suggest Alternative Narrative Hook
-  const handleGenerateCreativeHook = () => {
+  // AI Suggest Alternative Narrative Hook — calls the real Gemini-backed endpoint
+  const handleGenerateCreativeHook = async () => {
     setIsRegenerating(true);
-    setTimeout(() => {
-      onUpdateStoryKernel({
-        ...storyKernel,
-        problemStatement:
-          'Trong ngày hội STEM chuẩn bị kỷ niệm 40 năm thành lập trường, nhóm học sinh cần tính chính xác chiều dài dây cờ nối từ đỉnh cây cổ thụ xuống cột cờ trung tâm, nhưng tuyệt đối không được trèo cây vì nguy hiểm.',
-        goal: 'Xác định chiều cao ngọn cây và đỉnh cột cờ bằng công cụ gián tiếp trong vòng 30 phút.',
-        obstacles: 'Gió mạnh làm bay các cuộn dây thử nghiệm, bóng cây thay đổi liên tục theo giờ nắng.',
-        climax:
-          'Minh và Lan nhận ra bóng nắng ở thời điểm 9h30 sáng tạo nên góc chiếu hoàn hảo tương ứng với tỉ lệ Thales.',
-        resolution:
-          'Lập tỉ số cọc tiêu 1m với bóng 1.2m, đo bóng cây 9.6m để suy ra chiều cao cây 8m an toàn tuyệt đối.',
-        knowledgeConclusion:
-          'Định lý Thales biến những thử thách đo đạc nguy hiểm thành một bài toán trí tuệ thanh lịch và an toàn.',
+    setGenError(null);
+    try {
+      const res = await fetch('/api/comic/generate-story-kernel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ knowledgeProfile }),
       });
+      const data = await res.json();
+      if (res.ok && data.storyKernel) {
+        onUpdateStoryKernel({
+          ...storyKernel,
+          ...data.storyKernel,
+        });
+      } else {
+        setGenError(data.error || 'AI không thể tạo tình huống mới. Vui lòng thử lại.');
+      }
+    } catch {
+      setGenError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
       setIsRegenerating(false);
-    }, 600);
+    }
   };
 
   return (
@@ -70,14 +76,21 @@ export const Step2StoryKernel: React.FC<Step2StoryKernelProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={handleGenerateCreativeHook}
-          disabled={isRegenerating}
-          className="px-4 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 text-purple-200 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
-          <span>AI Gợi Ý Tình Huống Mới</span>
-        </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <button
+            onClick={handleGenerateCreativeHook}
+            disabled={isRegenerating}
+            className="px-4 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 text-purple-200 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+            <span>{isRegenerating ? 'AI Đang Sáng Tạo...' : 'AI Gợi Ý Tình Huống Mới'}</span>
+          </button>
+          {genError && (
+            <p className="text-[11px] text-rose-300 bg-rose-950/30 border border-rose-500/30 rounded-lg px-2.5 py-1 max-w-xs text-right">
+              {genError}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Story Kernel Breakdown Cards */}

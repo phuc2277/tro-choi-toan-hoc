@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ComicScene, CharacterProfile } from '../../types/comicLesson';
+import { ComicScene, CharacterProfile, LessonKnowledgeProfile, StoryKernel } from '../../types/comicLesson';
 import {
   Film,
   Sparkles,
@@ -15,6 +15,7 @@ import {
   Wand2,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Step4ScriptEditorProps {
@@ -23,6 +24,8 @@ interface Step4ScriptEditorProps {
   onUpdateScenes: (scenes: ComicScene[]) => void;
   onNextStep: () => void;
   onPrevStep: () => void;
+  knowledgeProfile?: LessonKnowledgeProfile;
+  storyKernel?: StoryKernel;
 }
 
 export const Step4ScriptEditor: React.FC<Step4ScriptEditorProps> = ({
@@ -31,9 +34,44 @@ export const Step4ScriptEditor: React.FC<Step4ScriptEditorProps> = ({
   onUpdateScenes,
   onNextStep,
   onPrevStep,
+  knowledgeProfile,
+  storyKernel,
 }) => {
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number>(0);
   const [aiWorkingMode, setAiWorkingMode] = useState<string | null>(null);
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [scriptGenError, setScriptGenError] = useState<string | null>(null);
+
+  // AI Generate the entire 8-scene script from the knowledge profile + story kernel
+  const handleGenerateFullScript = async () => {
+    if (!knowledgeProfile || !storyKernel) {
+      setScriptGenError('Cần hoàn tất Bước 1 & 2 trước khi AI sinh kịch bản.');
+      return;
+    }
+    if (scenes.length > 0 && !confirm('AI sẽ tạo lại TOÀN BỘ 8 cảnh và ghi đè kịch bản hiện tại. Tiếp tục?')) {
+      return;
+    }
+    setIsGeneratingScript(true);
+    setScriptGenError(null);
+    try {
+      const res = await fetch('/api/comic/generate-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ knowledgeProfile, storyKernel, characters }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.scenes) && data.scenes.length > 0) {
+        onUpdateScenes(data.scenes);
+        setSelectedSceneIndex(0);
+      } else {
+        setScriptGenError(data.error || 'AI không thể tạo kịch bản lúc này. Vui lòng thử lại.');
+      }
+    } catch {
+      setScriptGenError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
 
   const currentScene = scenes[selectedSceneIndex] || scenes[0];
 
@@ -58,6 +96,7 @@ export const Step4ScriptEditor: React.FC<Step4ScriptEditorProps> = ({
         body: JSON.stringify({
           action: actionType,
           scene: currentScene,
+          knowledgeProfile,
         }),
       });
 
@@ -128,8 +167,22 @@ export const Step4ScriptEditor: React.FC<Step4ScriptEditorProps> = ({
           </p>
         </div>
 
-        {/* 6 AI Quick Assistant Buttons */}
-        <div className="flex flex-wrap gap-1.5 shrink-0 max-w-md justify-end">
+        {/* AI Full-Script Generation + 6 Quick Assistant Buttons */}
+        <div className="flex flex-col items-end gap-2 shrink-0 max-w-md">
+          <button
+            onClick={handleGenerateFullScript}
+            disabled={isGeneratingScript}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black flex items-center gap-1.5 shadow-lg transition-all cursor-pointer disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingScript ? 'animate-spin' : ''}`} />
+            {isGeneratingScript ? 'AI Đang Viết Kịch Bản 8 Cảnh...' : 'AI Sinh Toàn Bộ Kịch Bản 8 Cảnh'}
+          </button>
+          {scriptGenError && (
+            <p className="text-[11px] text-rose-300 bg-rose-950/30 border border-rose-500/30 rounded-lg px-2.5 py-1 text-right">
+              {scriptGenError}
+            </p>
+          )}
+        <div className="flex flex-wrap gap-1.5 justify-end">
           <button
             onClick={() => handleAiAction('rewrite')}
             disabled={!!aiWorkingMode}
@@ -172,6 +225,7 @@ export const Step4ScriptEditor: React.FC<Step4ScriptEditorProps> = ({
           >
             <CheckCircle2 className="w-3 h-3" /> AI Kiểm Tra Kiến Thức
           </button>
+        </div>
         </div>
       </div>
 

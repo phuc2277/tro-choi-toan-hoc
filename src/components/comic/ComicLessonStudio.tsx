@@ -250,6 +250,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             onUpdateCharacters={handleUpdateCharacters}
             onNextStep={() => setCurrentStep(4)}
             onPrevStep={() => setCurrentStep(2)}
+            knowledgeProfile={project.knowledgeProfile}
+            storyKernel={project.storyKernel}
           />
         )}
 
@@ -260,6 +262,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             onUpdateScenes={handleUpdateScenes}
             onNextStep={() => setCurrentStep(5)}
             onPrevStep={() => setCurrentStep(3)}
+            knowledgeProfile={project.knowledgeProfile}
+            storyKernel={project.storyKernel}
           />
         )}
 
@@ -270,6 +274,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             onUpdateScenes={handleUpdateScenes}
             onNextStep={() => setCurrentStep(6)}
             onPrevStep={() => setCurrentStep(4)}
+            knowledgeProfile={project.knowledgeProfile}
           />
         )}
 

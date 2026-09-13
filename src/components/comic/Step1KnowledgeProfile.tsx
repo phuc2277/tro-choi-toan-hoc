@@ -29,6 +29,19 @@ export const Step1KnowledgeProfile: React.FC<Step1KnowledgeProfileProps> = ({
   const [directInputText, setDirectInputText] = useState('');
   const [selectedSample, setSelectedSample] = useState<string>('math8-thales');
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'rawSource'>('profile');
+  const [attachedFile, setAttachedFile] = useState<{ name: string; base64: string; mimeType: string } | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
+  const handleFileSelected = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.includes(';base64,') ? result.split(';base64,')[1] : result;
+      setAttachedFile({ name: file.name, base64, mimeType: file.type || '' });
+      setDirectInputText('');
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Handle sample selection
   const handleLoadSample = (sampleKey: string) => {
@@ -116,32 +129,36 @@ export const Step1KnowledgeProfile: React.FC<Step1KnowledgeProfileProps> = ({
     }
   };
 
-  // Simulate AI Analysis from uploaded text
+  // AI Analysis from uploaded file (PDF/DOCX/PPTX/Image) or pasted text
   const handleAnalyzeWithAI = async () => {
+    if (!directInputText.trim() && !attachedFile) {
+      setAnalyzeError('Vui lòng tải lên tệp hoặc dán nội dung bài học trước khi phân tích.');
+      return;
+    }
+    setAnalyzeError(null);
     setIsAnalyzing(true);
     try {
-      // Send to backend endpoint
       const res = await fetch('/api/comic/analyze-source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceText: directInputText || knowledgeProfile.lessonTitle,
+          sourceText: directInputText,
+          fileBase64: attachedFile?.base64 || '',
+          mimeType: attachedFile?.mimeType || '',
+          originalName: attachedFile?.name || '',
           subject: knowledgeProfile.subject,
           grade: knowledgeProfile.grade,
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.knowledgeProfile) {
-          onUpdateKnowledgeProfile(data.knowledgeProfile);
-        }
+      const data = await res.json();
+      if (res.ok && data.knowledgeProfile) {
+        onUpdateKnowledgeProfile(data.knowledgeProfile);
       } else {
-        // Fallback local intelligent structuring if network error
-        console.log('AI Analysis completed with local structured parser fallback');
+        setAnalyzeError(data.error || 'AI không thể phân tích nguồn tài liệu này. Vui lòng thử lại.');
       }
     } catch {
-      console.log('Using local fallback profile');
+      setAnalyzeError('Lỗi kết nối tới máy chủ AI. Vui lòng kiểm tra mạng và thử lại.');
     } finally {
       setIsAnalyzing(false);
       setActiveSubTab('profile');
@@ -224,11 +241,23 @@ export const Step1KnowledgeProfile: React.FC<Step1KnowledgeProfileProps> = ({
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    setDirectInputText(`[Tài liệu đính kèm: ${file.name}] Bài học: ${knowledgeProfile.lessonTitle}`);
+                    handleFileSelected(file);
                   }
                 }}
               />
             </label>
+
+            {attachedFile && (
+              <div className="mt-2 px-3 py-2 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-cyan-200 font-bold truncate">📎 {attachedFile.name}</span>
+                <button
+                  onClick={() => setAttachedFile(null)}
+                  className="text-[11px] text-slate-400 hover:text-rose-400 font-bold shrink-0 cursor-pointer"
+                >
+                  Xóa
+                </button>
+              </div>
+            )}
 
             <div className="mt-4">
               <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
@@ -237,7 +266,10 @@ export const Step1KnowledgeProfile: React.FC<Step1KnowledgeProfileProps> = ({
               <textarea
                 rows={5}
                 value={directInputText}
-                onChange={(e) => setDirectInputText(e.target.value)}
+                onChange={(e) => {
+                  setDirectInputText(e.target.value);
+                  if (e.target.value) setAttachedFile(null);
+                }}
                 placeholder="Dán nội dung bài học từ SGK, giáo án CV 5512, hoặc ghi chú của thầy cô..."
                 className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/60 transition-colors resize-none"
               />
@@ -251,6 +283,12 @@ export const Step1KnowledgeProfile: React.FC<Step1KnowledgeProfileProps> = ({
               <Sparkles className="w-4 h-4" />
               {isAnalyzing ? 'AI Đang Bóc Tách Hồ Sơ...' : 'AI Phân Tích & Cập Nhật Hồ Sơ'}
             </button>
+
+            {analyzeError && (
+              <p className="mt-2 text-[11px] text-rose-300 bg-rose-950/30 border border-rose-500/30 rounded-lg px-2.5 py-1.5 leading-relaxed">
+                {analyzeError}
+              </p>
+            )}
           </div>
 
           {/* Quick Stats on Knowledge Profile */}

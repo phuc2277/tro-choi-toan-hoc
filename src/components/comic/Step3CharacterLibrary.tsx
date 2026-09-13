@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CharacterProfile } from '../../types/comicLesson';
+import { CharacterProfile, LessonKnowledgeProfile, StoryKernel } from '../../types/comicLesson';
 import { DEFAULT_CHARACTERS } from '../../data/defaultComicLessons';
 import {
   Users,
@@ -12,6 +12,10 @@ import {
   Palette,
   MessageCircle,
   Eye,
+  Library,
+  Save,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 
 interface Step3CharacterLibraryProps {
@@ -19,17 +23,54 @@ interface Step3CharacterLibraryProps {
   onUpdateCharacters: (characters: CharacterProfile[]) => void;
   onNextStep: () => void;
   onPrevStep: () => void;
+  knowledgeProfile?: LessonKnowledgeProfile;
+  storyKernel?: StoryKernel;
 }
+
+// Kho nhân vật dùng chung, lưu cục bộ để tái sử dụng xuyên nhiều bài học
+const CHARACTER_BANK_KEY = 'comic_character_bank_v1';
+
+const loadCharacterBank = (): CharacterProfile[] => {
+  try {
+    const raw = localStorage.getItem(CHARACTER_BANK_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveToCharacterBank = (chars: CharacterProfile[]) => {
+  try {
+    const existing = loadCharacterBank();
+    const merged = [...existing];
+    chars.forEach((c) => {
+      const idx = merged.findIndex((m) => m.id === c.id);
+      if (idx >= 0) merged[idx] = c;
+      else merged.push(c);
+    });
+    localStorage.setItem(CHARACTER_BANK_KEY, JSON.stringify(merged));
+    return merged;
+  } catch {
+    return loadCharacterBank();
+  }
+};
 
 export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
   characters,
   onUpdateCharacters,
   onNextStep,
   onPrevStep,
+  knowledgeProfile,
+  storyKernel,
 }) => {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>(
     characters[0]?.id || 'char-minh'
   );
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [isBankOpen, setIsBankOpen] = useState(false);
+  const [bankChars, setBankChars] = useState<CharacterProfile[]>(() => loadCharacterBank());
+  const [bankSavedMsg, setBankSavedMsg] = useState<string | null>(null);
 
   const selectedChar =
     characters.find((c) => c.id === selectedCharacterId) || characters[0];
@@ -84,6 +125,49 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
     }
   };
 
+  // AI Suggest a full cast of characters tailored to the current lesson + story kernel
+  const handleAiSuggestCharacters = async () => {
+    setIsGenerating(true);
+    setGenError(null);
+    try {
+      const res = await fetch('/api/comic/generate-characters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          knowledgeProfile,
+          storyKernel,
+          characterCount: 4,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.characters) && data.characters.length > 0) {
+        onUpdateCharacters(data.characters);
+        setSelectedCharacterId(data.characters[0].id);
+      } else {
+        setGenError(data.error || 'AI không thể gợi ý nhân vật lúc này. Vui lòng thử lại.');
+      }
+    } catch {
+      setGenError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Save current cast into the shared reusable character bank (persists across lessons)
+  const handleSaveToBank = () => {
+    const updatedBank = saveToCharacterBank(characters);
+    setBankChars(updatedBank);
+    setBankSavedMsg(`Đã lưu ${characters.length} nhân vật vào Kho Chung.`);
+    setTimeout(() => setBankSavedMsg(null), 2500);
+  };
+
+  // Pull one character from the shared bank into the current project
+  const handleAddFromBank = (char: CharacterProfile) => {
+    if (characters.some((c) => c.id === char.id)) return;
+    onUpdateCharacters([...characters, char]);
+    setSelectedCharacterId(char.id);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -103,12 +187,12 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
           </p>
         </div>
 
-        {/* Preset Group Buttons */}
-        <div className="flex flex-col gap-2 shrink-0">
+        {/* Preset Group Buttons + AI + Bank */}
+        <div className="flex flex-col gap-2 shrink-0 items-end">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             Chọn Nhóm Nhân Vật Sẵn Có:
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-end">
             <button
               onClick={() => handleLoadGroupPreset('lop8a')}
               className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600/30 hover:bg-blue-600/50 border border-blue-400 text-blue-200 transition-all cursor-pointer"
@@ -121,9 +205,71 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
             >
               🌿 CLB Khoa Học (Minh, Lan, Mai, Thầy Bình)
             </button>
+            <button
+              onClick={handleAiSuggestCharacters}
+              disabled={isGenerating}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400 text-purple-200 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+              {isGenerating ? 'AI Đang Thiết Kế...' : 'AI Gợi Ý Bộ Nhân Vật'}
+            </button>
+            <button
+              onClick={() => {
+                setBankChars(loadCharacterBank());
+                setIsBankOpen((v) => !v);
+              }}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Library className="w-3.5 h-3.5" /> Kho Nhân Vật Chung
+            </button>
           </div>
+          {genError && (
+            <p className="text-[11px] text-rose-300 bg-rose-950/30 border border-rose-500/30 rounded-lg px-2.5 py-1 max-w-xs text-right">
+              {genError}
+            </p>
+          )}
         </div>
       </div>
+
+      {/* Shared Character Bank Panel — reuse characters across multiple lessons */}
+      {isBankOpen && (
+        <div className="eduverse-glass p-4 rounded-2xl border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-black text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Library className="w-3.5 h-3.5 text-cyan-400" /> Kho Nhân Vật Dùng Chung ({bankChars.length})
+            </h4>
+            <button onClick={() => setIsBankOpen(false)} className="text-slate-500 hover:text-white cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {bankChars.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              Kho chung đang trống. Bấm "Lưu Vào Kho Chung" ở nhân vật bên dưới để dùng lại nhân vật này cho các bài học khác.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {bankChars.map((c) => {
+                const alreadyIn = characters.some((ch) => ch.id === c.id);
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => handleAddFromBank(c)}
+                    disabled={alreadyIn}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all cursor-pointer ${
+                      alreadyIn
+                        ? 'border-slate-800 bg-slate-900/50 text-slate-600 cursor-not-allowed'
+                        : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-cyan-400'
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.signatureColor }} />
+                    {c.name} {alreadyIn ? '(đã có)' : ''}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main Grid: Left Roster list, Right Detailed Profile */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -230,15 +376,32 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
                 </div>
               </div>
 
-              {/* Color Picker */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-bold text-slate-400">Màu Nhận Diện:</label>
-                <input
-                  type="color"
-                  value={selectedChar.signatureColor}
-                  onChange={(e) => handleUpdateCurrentChar({ signatureColor: e.target.value })}
-                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
-                />
+              {/* Color Picker + Save to Bank */}
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col items-end gap-0.5">
+                  <button
+                    onClick={() => {
+                      saveToCharacterBank([selectedChar]);
+                      setBankChars(loadCharacterBank());
+                      setBankSavedMsg(`Đã lưu "${selectedChar.name}" vào Kho Chung.`);
+                      setTimeout(() => setBankSavedMsg(null), 2500);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-cyan-600/30 border border-slate-700 hover:border-cyan-400 text-[11px] font-bold text-slate-300 hover:text-cyan-200 transition-all flex items-center gap-1 cursor-pointer"
+                    title="Lưu nhân vật này để dùng lại ở các bài học khác"
+                  >
+                    <Save className="w-3 h-3" /> Lưu Vào Kho Chung
+                  </button>
+                  {bankSavedMsg && <span className="text-[10px] text-emerald-400">{bankSavedMsg}</span>}
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block text-center mb-0.5">Màu</label>
+                  <input
+                    type="color"
+                    value={selectedChar.signatureColor}
+                    onChange={(e) => handleUpdateCurrentChar({ signatureColor: e.target.value })}
+                    className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
+                  />
+                </div>
               </div>
             </div>
 

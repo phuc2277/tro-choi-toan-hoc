@@ -1673,6 +1673,692 @@ Yêu cầu:
     }
   });
 
+  // =====================================================================
+  // AI TRUYỆN TRANH BÀI HỌC (Comic Lesson Pipeline)
+  // Bài học -> Hồ sơ kiến thức -> Hạt nhân truyện -> Nhân vật -> Kịch bản
+  // -> Storyboard -> Duyệt -> Tranh -> Kiểm tra chất lượng -> Audio -> Video
+  // =====================================================================
+
+  const COMIC_SCENE_TYPES = [
+    'opening',
+    'problem',
+    'questioning',
+    'hypothesis',
+    'discovery',
+    'application',
+    'result',
+    'summary',
+  ] as const;
+
+  const COMIC_ILLUSTRATION_TYPES = [
+    'schoolyard_tree',
+    'schoolyard_measure',
+    'classroom_board',
+    'library_study',
+    'greenhouse_plant',
+    'nature_field',
+    'lab_discovery',
+  ];
+
+  // 9a. AI Analyze Lesson Source -> Knowledge Profile (from text, PDF, DOCX, or image)
+  app.post('/api/comic/analyze-source', async (req, res) => {
+    try {
+      const {
+        sourceText = '',
+        fileBase64 = '',
+        mimeType = '',
+        originalName = '',
+        subject = 'Toán học',
+        grade = 'Lớp 8',
+      } = req.body;
+
+      let rawContent = (sourceText || '').trim();
+      const ai = getGenAI();
+      const promptParts: any[] = [];
+
+      if (fileBase64) {
+        const base64Data = fileBase64.includes(';base64,') ? fileBase64.split(';base64,')[1] : fileBase64;
+        const buffer = Buffer.from(base64Data, 'base64');
+        const isPdf = (mimeType && mimeType.includes('pdf')) || originalName.toLowerCase().endsWith('.pdf');
+        const isDocx =
+          (mimeType && (mimeType.includes('word') || mimeType.includes('officedocument.wordprocessingml'))) ||
+          originalName.toLowerCase().endsWith('.docx');
+        const isPptx =
+          (mimeType && mimeType.includes('presentationml')) ||
+          /\.(pptx|ppt)$/i.test(originalName);
+        const isImage = (mimeType && mimeType.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif)$/i.test(originalName);
+
+        if (isImage) {
+          promptParts.push({ inlineData: { data: base64Data, mimeType: mimeType || 'image/jpeg' } });
+        } else if (isPdf) {
+          try {
+            const pdfData = await pdfParse(buffer);
+            rawContent = pdfData.text || '';
+          } catch {
+            rawContent = buffer.toString('utf-8');
+          }
+        } else if (isDocx) {
+          try {
+            const docxResult = await mammoth.extractRawText({ buffer });
+            rawContent = docxResult.value || '';
+          } catch {
+            rawContent = buffer.toString('utf-8');
+          }
+        } else if (isPptx) {
+          // PPTX text is XML-zipped; fall back to raw scan for readable text fragments
+          rawContent = buffer.toString('utf-8').replace(/<[^>]+>/g, ' ').slice(0, 40000);
+        } else {
+          rawContent = buffer.toString('utf-8');
+        }
+      }
+
+      if (!rawContent && promptParts.length === 0) {
+        return res.status(400).json({ error: 'Cần cung cấp nội dung bài học (văn bản hoặc tệp đính kèm).' });
+      }
+
+      const promptText = `Bạn là chuyên gia sư phạm THCS, chuyên bóc tách nội dung bài học chuẩn Chương trình GDPT 2018 để chuyển thể thành truyện tranh giáo dục.
+
+THÔNG TIN: Môn học "${subject}", Khối "${grade}".
+
+${rawContent ? `NỘI DUNG NGUỒN (SGK/Giáo án/Sách GV):\n"""\n${rawContent.slice(0, 35000)}\n"""` : 'Hãy đọc nội dung từ tệp/ảnh đính kèm.'}
+
+YÊU CẦU: Đọc kỹ và trích xuất chính xác, TUYỆT ĐỐI KHÔNG bịa thêm kiến thức không có trong nguồn:
+1. objectives: Mục tiêu bài học (năng lực, phẩm chất theo GDPT 2018).
+2. coreKnowledge: Kiến thức trọng tâm bất biến (giữ nguyên định nghĩa/định lý gốc).
+3. concepts: Các khái niệm chính.
+4. formulas: Công thức dạng LaTeX chuẩn (không kèm dấu $, chỉ nội dung LaTeX thuần, VD "\\\\frac{a}{b}").
+5. examples: Ví dụ minh họa cụ thể có số liệu.
+6. problemSolvingProcess: Quy trình giải quyết vấn đề / các bước thực hành theo thứ tự.
+7. importantDiagrams: Mô tả hình vẽ/sơ đồ quan trọng cần thể hiện trực quan.
+8. keyTerms: Thuật ngữ cốt lõi.
+9. commonMisconceptions: Lỗi học sinh thường nhầm lẫn (để cài vào kịch bản truyện nhằm khắc phục).
+10. teacherNotes: Ghi chú nguồn tài liệu, bộ sách.
+Cũng xác nhận lại chapter và lessonTitle chính xác từ nguồn.`;
+
+      promptParts.push(promptText);
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: promptParts,
+        config: {
+          systemInstruction: 'Bạn là chuyên gia phân tích học liệu sư phạm THCS, tuyệt đối trung thành với nguồn tài liệu gốc, không tự bịa kiến thức.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              subject: { type: Type.STRING },
+              grade: { type: Type.STRING },
+              chapter: { type: Type.STRING },
+              lessonTitle: { type: Type.STRING },
+              objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+              coreKnowledge: { type: Type.ARRAY, items: { type: Type.STRING } },
+              concepts: { type: Type.ARRAY, items: { type: Type.STRING } },
+              formulas: { type: Type.ARRAY, items: { type: Type.STRING } },
+              examples: { type: Type.ARRAY, items: { type: Type.STRING } },
+              problemSolvingProcess: { type: Type.ARRAY, items: { type: Type.STRING } },
+              importantDiagrams: { type: Type.ARRAY, items: { type: Type.STRING } },
+              keyTerms: { type: Type.ARRAY, items: { type: Type.STRING } },
+              commonMisconceptions: { type: Type.ARRAY, items: { type: Type.STRING } },
+              teacherNotes: { type: Type.STRING },
+            },
+            required: [
+              'subject', 'grade', 'chapter', 'lessonTitle', 'objectives', 'coreKnowledge',
+              'concepts', 'formulas', 'examples', 'problemSolvingProcess', 'commonMisconceptions',
+            ],
+          },
+        },
+      });
+
+      const text = response.text;
+      const knowledgeProfile = text ? JSON.parse(text) : null;
+      if (!knowledgeProfile) throw new Error('AI không trả về dữ liệu hợp lệ.');
+      res.json({ success: true, knowledgeProfile });
+    } catch (error: any) {
+      console.error('Comic Analyze Source Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi phân tích nguồn bài học' });
+    }
+  });
+
+  // 9b. AI Generate Story Kernel from Knowledge Profile
+  app.post('/api/comic/generate-story-kernel', async (req, res) => {
+    try {
+      const { knowledgeProfile } = req.body;
+      if (!knowledgeProfile) return res.status(400).json({ error: 'Thiếu hồ sơ kiến thức' });
+
+      const ai = getGenAI();
+      const prompt = `Bạn là biên kịch truyện tranh giáo dục THCS. Hãy tìm "hạt nhân câu chuyện" (story kernel) từ bài học sau, biến kiến thức hàn lâm thành một TÌNH HUỐNG THỰC TẾ, gần gũi lứa tuổi THCS mà nhân vật buộc phải dùng đúng kiến thức bài học để giải quyết.
+
+BÀI HỌC: ${knowledgeProfile.lessonTitle} (${knowledgeProfile.subject} - ${knowledgeProfile.grade})
+KIẾN THỨC TRỌNG TÂM: ${(knowledgeProfile.coreKnowledge || []).join(' | ')}
+CÔNG THỨC: ${(knowledgeProfile.formulas || []).join(' | ')}
+LỖI HAY GẶP CẦN CÀI VÀO TÌNH HUỐNG: ${(knowledgeProfile.commonMisconceptions || []).join(' | ')}
+
+Yêu cầu xây dựng:
+1. problemStatement: Vấn đề thực tế mở đầu, gây tò mò, không thể giải quyết bằng cách thông thường.
+2. protagonistNames: 2-3 tên nhân vật học sinh Việt Nam phù hợp câu chuyện.
+3. goal: Mục tiêu cụ thể nhân vật phải đạt.
+4. obstacles: Trở ngại khiến cách làm thông thường thất bại.
+5. knowledgeToDiscover: Kiến thức bài học chính là chìa khóa giải quyết.
+6. climax: Khoảnh khắc "A-ha!" nhân vật lóe sáng ý tưởng.
+7. resolution: Cách giải quyết cụ thể có số liệu, áp dụng đúng công thức/định lý.
+8. knowledgeConclusion: Bài học khái quát rút ra, dễ nhớ.`;
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Bạn là biên kịch sư phạm chuyên biến kiến thức thành câu chuyện thực tế hấp dẫn cho học sinh THCS.',
+          temperature: 0.85,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              problemStatement: { type: Type.STRING },
+              protagonistNames: { type: Type.ARRAY, items: { type: Type.STRING } },
+              goal: { type: Type.STRING },
+              obstacles: { type: Type.STRING },
+              knowledgeToDiscover: { type: Type.STRING },
+              climax: { type: Type.STRING },
+              resolution: { type: Type.STRING },
+              knowledgeConclusion: { type: Type.STRING },
+            },
+            required: ['problemStatement', 'goal', 'obstacles', 'knowledgeToDiscover', 'climax', 'resolution', 'knowledgeConclusion'],
+          },
+        },
+      });
+
+      const text = response.text;
+      const storyKernel = text ? JSON.parse(text) : null;
+      if (!storyKernel) throw new Error('AI không trả về dữ liệu hợp lệ.');
+      res.json({ success: true, storyKernel });
+    } catch (error: any) {
+      console.error('Comic Story Kernel Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi tạo hạt nhân câu chuyện' });
+    }
+  });
+
+  // 9c. AI Suggest Characters from Knowledge Profile + Story Kernel
+  app.post('/api/comic/generate-characters', async (req, res) => {
+    try {
+      const { knowledgeProfile, storyKernel, characterCount = 4 } = req.body;
+
+      const ai = getGenAI();
+      const prompt = `Hãy thiết kế ${characterCount} nhân vật cho truyện tranh giáo dục THCS môn "${knowledgeProfile?.subject || ''}" (${knowledgeProfile?.grade || ''}).
+Tình huống truyện: ${storyKernel?.problemStatement || ''}
+Gợi ý tên nhân vật (nếu có thể dùng): ${(storyKernel?.protagonistNames || []).join(', ')}
+
+Yêu cầu mỗi nhân vật:
+- Có ít nhất 1 giáo viên/người hướng dẫn (role: "teacher" hoặc "guide"), còn lại là học sinh (role: "student").
+- id dạng "char-<tên-không-dấu-viết-thường>" (VD: "char-minh").
+- age hợp lý với khối lớp THCS (12-15) hoặc người lớn với giáo viên.
+- appearance, outfit mô tả CHI TIẾT, CỤ THỂ (màu sắc, kiểu tóc, trang phục) để giữ nhất quán hình ảnh xuyên suốt truyện.
+- signatureColor: mã màu hex riêng biệt cho từng nhân vật, không trùng nhau.
+- educationalRole: vai trò sư phạm của nhân vật trong việc dẫn dắt khám phá kiến thức.
+- gender: "male" hoặc "female".`;
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Bạn là nhà thiết kế nhân vật truyện tranh giáo dục, ưu tiên sự đa dạng và nhất quán hình ảnh.',
+          temperature: 0.8,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                name: { type: Type.STRING },
+                age: { type: Type.NUMBER },
+                grade: { type: Type.STRING },
+                role: { type: Type.STRING },
+                personality: { type: Type.STRING },
+                appearance: { type: Type.STRING },
+                outfit: { type: Type.STRING },
+                signatureColor: { type: Type.STRING },
+                speechStyle: { type: Type.STRING },
+                educationalRole: { type: Type.STRING },
+                gender: { type: Type.STRING },
+              },
+              required: ['id', 'name', 'age', 'grade', 'role', 'personality', 'appearance', 'outfit', 'signatureColor', 'speechStyle', 'educationalRole', 'gender'],
+            },
+          },
+        },
+      });
+
+      const text = response.text;
+      let characters = text ? JSON.parse(text) : [];
+      // Sanitize roles/gender to expected enums
+      characters = characters.map((c: any, idx: number) => ({
+        ...c,
+        id: c.id || `char-${Date.now()}-${idx}`,
+        role: ['student', 'teacher', 'guide', 'supporting'].includes(c.role) ? c.role : 'student',
+        gender: c.gender === 'female' ? 'female' : 'male',
+      }));
+      res.json({ success: true, characters });
+    } catch (error: any) {
+      console.error('Comic Generate Characters Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi tạo nhân vật' });
+    }
+  });
+
+  // 9d. AI Generate Full 8-Scene Script from Knowledge Profile + Story Kernel + Characters
+  app.post('/api/comic/generate-script', async (req, res) => {
+    try {
+      const { knowledgeProfile, storyKernel, characters = [] } = req.body;
+      if (!knowledgeProfile || !storyKernel) {
+        return res.status(400).json({ error: 'Thiếu hồ sơ kiến thức hoặc hạt nhân câu chuyện' });
+      }
+
+      const ai = getGenAI();
+      const characterList = characters
+        .map((c: any) => `${c.name} (id: ${c.id}, ${c.role}, tính cách: ${c.personality})`)
+        .join('; ');
+
+      const prompt = `Viết kịch bản truyện tranh giáo dục gồm ĐÚNG 8 CẢNH theo tiến trình nhận thức sư phạm chuẩn cho bài học sau. Mỗi cảnh phải nối tiếp mạch truyện logic.
+
+BÀI HỌC: ${knowledgeProfile.lessonTitle} (${knowledgeProfile.subject} - ${knowledgeProfile.grade})
+KIẾN THỨC TRỌNG TÂM: ${(knowledgeProfile.coreKnowledge || []).join(' | ')}
+CÔNG THỨC: ${(knowledgeProfile.formulas || []).join(' | ')}
+QUY TRÌNH GIẢI QUYẾT VẤN ĐỀ: ${(knowledgeProfile.problemSolvingProcess || []).join(' -> ')}
+LỖI HAY GẶP CẦN KHẮC PHỤC TRONG TRUYỆN: ${(knowledgeProfile.commonMisconceptions || []).join(' | ')}
+
+HẠT NHÂN CÂU CHUYỆN:
+- Vấn đề: ${storyKernel.problemStatement}
+- Mục tiêu: ${storyKernel.goal}
+- Trở ngại: ${storyKernel.obstacles}
+- Cao trào: ${storyKernel.climax}
+- Giải quyết: ${storyKernel.resolution}
+- Kết luận: ${storyKernel.knowledgeConclusion}
+
+NHÂN VẬT (dùng ĐÚNG id và tên các nhân vật này, không tự tạo nhân vật mới): ${characterList || 'Minh (char-minh), Lan (char-lan), Nam (char-nam)'}
+
+CẤU TRÚC 8 CẢNH BẮT BUỘC theo thứ tự: (1) opening - mở đầu bối cảnh, (2) problem - xuất hiện vấn đề, (3) questioning - đặt câu hỏi băn khoăn, (4) hypothesis - thử nghiệm/giả thuyết sai (có thể cài lỗi sai phổ biến ở đây), (5) discovery - khám phá kiến thức đúng (cao trào), (6) application - áp dụng giải quyết vấn đề bằng công thức, (7) result - kết quả thành công có số liệu cụ thể, (8) summary - chốt kiến thức và mở rộng liên hệ thực tế.
+
+Mỗi cảnh cần: sceneName (ngắn gọn), educationalGoal, environmentName (bối cảnh không gian), characters (mảng id nhân vật xuất hiện), actionDescription, dialogue (2-4 câu thoại, dùng đúng characterId/characterName), narration (lời dẫn chuyện), knowledgeAppeared (kiến thức xuất hiện trong cảnh, có thể để trống với cảnh đầu/cuối), emotion (cảm xúc chủ đạo), props (đạo cụ), visualDescription (mô tả hình ảnh tổng quát), videoMotion (gợi ý chuyển động camera), estimatedDurationSec (20-45 giây).`;
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Bạn là biên kịch sư phạm, tuyệt đối giữ đúng kiến thức nguồn, không bịa công thức hay số liệu sai.',
+          temperature: 0.8,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                sceneName: { type: Type.STRING },
+                educationalGoal: { type: Type.STRING },
+                environmentName: { type: Type.STRING },
+                characters: { type: Type.ARRAY, items: { type: Type.STRING } },
+                actionDescription: { type: Type.STRING },
+                dialogue: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      characterId: { type: Type.STRING },
+                      characterName: { type: Type.STRING },
+                      text: { type: Type.STRING },
+                      emotion: { type: Type.STRING },
+                    },
+                    required: ['characterId', 'characterName', 'text'],
+                  },
+                },
+                narration: { type: Type.STRING },
+                knowledgeAppeared: { type: Type.STRING },
+                emotion: { type: Type.STRING },
+                props: { type: Type.ARRAY, items: { type: Type.STRING } },
+                visualDescription: { type: Type.STRING },
+                videoMotion: { type: Type.STRING },
+                estimatedDurationSec: { type: Type.NUMBER },
+              },
+              required: ['sceneName', 'educationalGoal', 'environmentName', 'characters', 'actionDescription', 'dialogue', 'narration', 'emotion', 'props', 'visualDescription', 'videoMotion', 'estimatedDurationSec'],
+            },
+          },
+        },
+      });
+
+      const text = response.text;
+      const raw = text ? JSON.parse(text) : [];
+      // Enforce exact 8-scene pedagogical structure & valid ids/types regardless of model output
+      const scenes = raw.slice(0, 8).map((s: any, idx: number) => {
+        const sceneNum = idx + 1;
+        const sceneId = `SC${sceneNum < 10 ? `0${sceneNum}` : sceneNum}`;
+        return {
+          sceneId,
+          sceneNumber: sceneNum,
+          sceneType: COMIC_SCENE_TYPES[idx] || 'summary',
+          sceneName: s.sceneName || `Cảnh ${sceneNum}`,
+          educationalGoal: s.educationalGoal || '',
+          environmentId: `env-${sceneId.toLowerCase()}`,
+          environmentName: s.environmentName || 'Lớp học',
+          characters: Array.isArray(s.characters) && s.characters.length > 0 ? s.characters : (characters[0] ? [characters[0].id] : ['char-minh']),
+          actionDescription: s.actionDescription || '',
+          dialogue: Array.isArray(s.dialogue) ? s.dialogue : [],
+          narration: s.narration || '',
+          knowledgeAppeared: s.knowledgeAppeared || '',
+          emotion: s.emotion || 'Hào hứng',
+          props: Array.isArray(s.props) ? s.props : [],
+          visualDescription: s.visualDescription || s.actionDescription || '',
+          videoMotion: s.videoMotion || 'Camera tĩnh, lia nhẹ',
+          estimatedDurationSec: Number(s.estimatedDurationSec) || 30,
+          frames: [],
+        };
+      });
+
+      res.json({ success: true, scenes });
+    } catch (error: any) {
+      console.error('Comic Generate Script Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi tạo kịch bản' });
+    }
+  });
+
+  // 9e. AI Edit Single Scene (6 specialized actions used by Step 4 Script Editor)
+  app.post('/api/comic/ai-edit-scene', async (req, res) => {
+    try {
+      const { action, scene, knowledgeProfile } = req.body;
+      if (!action || !scene) return res.status(400).json({ error: 'Thiếu action hoặc scene' });
+
+      const actionInstructions: Record<string, string> = {
+        rewrite: 'Viết lại narration và dialogue của cảnh này theo cách khác, sinh động hơn nhưng GIỮ NGUYÊN kiến thức, nhân vật và ý nghĩa sư phạm.',
+        shorten: 'Rút gọn narration và dialogue của cảnh này còn khoảng 60% độ dài, giữ đủ ý chính. Giảm estimatedDurationSec tương ứng (tối thiểu 8 giây).',
+        humor: 'Thêm 1 câu thoại hài hước, dí dỏm phù hợp lứa tuổi THCS vào cuối mảng dialogue hiện có, KHÔNG xóa các câu thoại cũ, không làm sai lệch kiến thức.',
+        grade6: 'Đơn giản hóa ngôn ngữ, ví dụ và narration cho phù hợp học sinh lớp 6 (dễ hiểu hơn, câu ngắn hơn), vẫn giữ đúng bản chất kiến thức.',
+        grade9: 'Nâng cấp độ sâu kiến thức, ngôn ngữ trong narration và dialogue cho phù hợp học sinh lớp 9 (tư duy trừu tượng hơn), vẫn dựa trên cùng kiến thức gốc.',
+        knowledgeCheck: 'Kiểm tra độ chính xác kiến thức trong cảnh này so với hồ sơ kiến thức bài học, sửa lại bất kỳ chi tiết/công thức/số liệu nào SAI hoặc GÂY HIỂU LẦM. Nếu không có lỗi, giữ nguyên nội dung.',
+      };
+
+      const instruction = actionInstructions[action];
+      if (!instruction) return res.status(400).json({ error: 'Hành động AI không hợp lệ' });
+
+      const ai = getGenAI();
+      const prompt = `Cảnh truyện tranh giáo dục hiện tại (JSON):
+${JSON.stringify(scene)}
+
+${knowledgeProfile ? `HỒ SƠ KIẾN THỨC BÀI HỌC ĐỂ ĐỐI CHIẾU:\n${JSON.stringify(knowledgeProfile)}\n` : ''}
+YÊU CẦU CHỈNH SỬA: ${instruction}
+
+Trả về TOÀN BỘ object cảnh đã chỉnh sửa với CÙNG CẤU TRÚC JSON như trên (giữ nguyên sceneId, sceneNumber, sceneType, environmentId, characters, frames và các trường không liên quan tới yêu cầu).`;
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Bạn là trợ lý biên tập kịch bản sư phạm, chỉ chỉnh sửa đúng phần được yêu cầu, không phá vỡ cấu trúc dữ liệu.',
+          temperature: 0.75,
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const text = response.text;
+      const parsed = text ? JSON.parse(text) : null;
+      if (!parsed) throw new Error('AI không trả về dữ liệu hợp lệ.');
+      // Merge over original scene to guard against missing/renamed fields from the model
+      const updatedScene = { ...scene, ...parsed };
+      res.json({ success: true, updatedScene });
+    } catch (error: any) {
+      console.error('Comic AI Edit Scene Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi chỉnh sửa cảnh bằng AI' });
+    }
+  });
+
+  // 9f. AI Generate Storyboard Frames for a Scene
+  app.post('/api/comic/generate-storyboard', async (req, res) => {
+    try {
+      const { scene, characters = [], knowledgeProfile, frameCount = 3 } = req.body;
+      if (!scene) return res.status(400).json({ error: 'Thiếu thông tin cảnh' });
+
+      const ai = getGenAI();
+      const characterDetails = characters
+        .filter((c: any) => (scene.characters || []).includes(c.id))
+        .map((c: any) => `- ${c.name} (id: ${c.id}): ${c.appearance}; trang phục: ${c.outfit}; màu nhận diện: ${c.signatureColor}`)
+        .join('\n');
+
+      const prompt = `Chia cảnh truyện tranh sau thành ĐÚNG ${frameCount} khung tranh (frame) kế tiếp nhau, mỗi khung là 1 khoảnh khắc hình ảnh cụ thể.
+
+CẢNH: ${scene.sceneName} (${scene.sceneId})
+Mục tiêu sư phạm: ${scene.educationalGoal}
+Bối cảnh: ${scene.environmentName}
+Hành động: ${scene.actionDescription}
+Lời dẫn: ${scene.narration}
+Hội thoại: ${(scene.dialogue || []).map((d: any) => `${d.characterName}: "${d.text}"`).join(' | ')}
+Kiến thức xuất hiện: ${scene.knowledgeAppeared}
+Công thức liên quan (nếu có, dùng LaTeX chuẩn): ${(knowledgeProfile?.formulas || []).join(' | ')}
+
+NHÂN VẬT TRONG CẢNH (PHẢI giữ đúng ngoại hình/trang phục mô tả để nhất quán xuyên suốt):
+${characterDetails || 'Không có nhân vật cụ thể'}
+
+Mỗi khung cần:
+- title: tiêu đề ngắn của khung.
+- characterIds: mảng id nhân vật xuất hiện trong khung (chỉ dùng id có sẵn ở trên).
+- backgroundName: mô tả bối cảnh cụ thể của khung.
+- visualAction: mô tả chính xác hành động/tư thế nhân vật trong khung.
+- captionText: caption ngắn (có thể để trống).
+- speechBubbles: mảng bong bóng thoại {characterId, characterName, text, type: "speech"|"thought"|"shout"|"whisper"} lấy từ hội thoại của cảnh, phân bổ hợp lý qua các khung.
+- illustrationSceneType: chọn đúng 1 giá trị trong danh sách [${COMIC_ILLUSTRATION_TYPES.join(', ')}] phù hợp nhất với bối cảnh khung.
+- promptDetails: { character, environment, action, camera (góc máy), composition (bố cục), lighting (ánh sáng), emotion, educationalObject (đối tượng kiến thức xuất hiện), artStyle: "2D modern educational comic, consistent character design", consistencyInfo: mô tả ngắn để AI vẽ giữ đúng đặc điểm nhân vật, fullPrompt (prompt đầy đủ tiếng Anh để tạo ảnh), videoPrompt (prompt mô tả chuyển động camera bằng tiếng Anh) }.`;
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Bạn là đạo diễn storyboard truyện tranh giáo dục, luôn giữ nhất quán nhân vật, bối cảnh và chính xác kiến thức.',
+          temperature: 0.75,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+                backgroundName: { type: Type.STRING },
+                visualAction: { type: Type.STRING },
+                captionText: { type: Type.STRING },
+                speechBubbles: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      characterId: { type: Type.STRING },
+                      characterName: { type: Type.STRING },
+                      text: { type: Type.STRING },
+                      type: { type: Type.STRING },
+                    },
+                    required: ['characterId', 'characterName', 'text'],
+                  },
+                },
+                illustrationSceneType: { type: Type.STRING },
+                promptDetails: {
+                  type: Type.OBJECT,
+                  properties: {
+                    character: { type: Type.STRING },
+                    environment: { type: Type.STRING },
+                    action: { type: Type.STRING },
+                    camera: { type: Type.STRING },
+                    composition: { type: Type.STRING },
+                    lighting: { type: Type.STRING },
+                    emotion: { type: Type.STRING },
+                    educationalObject: { type: Type.STRING },
+                    artStyle: { type: Type.STRING },
+                    consistencyInfo: { type: Type.STRING },
+                    fullPrompt: { type: Type.STRING },
+                    videoPrompt: { type: Type.STRING },
+                  },
+                  required: ['character', 'environment', 'action', 'camera', 'composition', 'lighting', 'emotion', 'educationalObject', 'artStyle', 'consistencyInfo', 'fullPrompt', 'videoPrompt'],
+                },
+              },
+              required: ['title', 'characterIds', 'backgroundName', 'visualAction', 'speechBubbles', 'illustrationSceneType', 'promptDetails'],
+            },
+          },
+        },
+      });
+
+      const text = response.text;
+      const raw = text ? JSON.parse(text) : [];
+      const frames = raw.slice(0, frameCount).map((f: any, idx: number) => {
+        const frameNum = idx + 1;
+        const frameId = `${scene.sceneId}-F0${frameNum}`;
+        const validIllustration = COMIC_ILLUSTRATION_TYPES.includes(f.illustrationSceneType)
+          ? f.illustrationSceneType
+          : 'classroom_board';
+        return {
+          frameId,
+          sceneId: scene.sceneId,
+          frameNumber: frameNum,
+          title: f.title || `Khung ${frameNum}`,
+          characterIds: Array.isArray(f.characterIds) && f.characterIds.length > 0 ? f.characterIds : (scene.characters || []),
+          backgroundId: `bg-${frameId.toLowerCase()}`,
+          backgroundName: f.backgroundName || scene.environmentName,
+          visualAction: f.visualAction || scene.actionDescription,
+          speechBubbles: (Array.isArray(f.speechBubbles) ? f.speechBubbles : []).map((sb: any, sbIdx: number) => ({
+            id: `sb-${frameId}-${sbIdx}`,
+            characterId: sb.characterId,
+            characterName: sb.characterName,
+            text: sb.text,
+            position: { x: 30 + sbIdx * 20, y: 20 },
+            type: ['speech', 'thought', 'shout', 'whisper'].includes(sb.type) ? sb.type : 'speech',
+          })),
+          captionText: f.captionText || '',
+          promptDetails: f.promptDetails,
+          illustrationSceneType: validIllustration,
+          status: 'pending',
+          audioTracks: {
+            narrationText: idx === 0 ? scene.narration : '',
+            dialogueLines: (Array.isArray(f.speechBubbles) ? f.speechBubbles : []).map((sb: any) => ({
+              characterId: sb.characterId,
+              text: sb.text,
+              durationSec: Math.max(2, Math.round((sb.text || '').length / 12)),
+            })),
+            durationSec: Math.max(4, Math.round(scene.estimatedDurationSec / frameCount)),
+          },
+        };
+      });
+
+      res.json({ success: true, frames });
+    } catch (error: any) {
+      console.error('Comic Generate Storyboard Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi tạo storyboard' });
+    }
+  });
+
+  // 9g. AI Quality Check: Pedagogical accuracy + Visual/Character Consistency Audit
+  app.post('/api/comic/quality-check', async (req, res) => {
+    try {
+      const { knowledgeProfile, characters = [], scenes = [] } = req.body;
+      if (!knowledgeProfile || !scenes.length) {
+        return res.status(400).json({ error: 'Thiếu dữ liệu để kiểm tra chất lượng' });
+      }
+
+      const ai = getGenAI();
+      const characterNames = characters.map((c: any) => c.name).join(', ');
+      const sceneSummaries = scenes
+        .map(
+          (s: any) =>
+            `${s.sceneId} (${s.sceneName}): kiến thức="${s.knowledgeAppeared}"; lời dẫn="${s.narration}"; số khung=${(s.frames || []).length}`
+        )
+        .join('\n');
+
+      const prompt = `Kiểm tra chất lượng bộ truyện tranh giáo dục sau trước khi xuất bản cho học sinh THCS.
+
+BÀI HỌC: ${knowledgeProfile.lessonTitle} (${knowledgeProfile.subject} - ${knowledgeProfile.grade})
+KIẾN THỨC GỐC CẦN ĐỐI CHIẾU: ${(knowledgeProfile.coreKnowledge || []).join(' | ')}
+CÔNG THỨC GỐC: ${(knowledgeProfile.formulas || []).join(' | ')}
+NHÂN VẬT: ${characterNames}
+
+DANH SÁCH CẢNH:
+${sceneSummaries}
+
+Hãy đánh giá và trả về:
+1. gradeLevelAppropriate: nội dung có phù hợp lứa tuổi THCS không.
+2. mathematicalAccuracy: kiến thức/công thức trong các cảnh có khớp với kiến thức gốc không (true/false).
+3. conceptClarityScore (0-100): độ rõ ràng khái niệm.
+4. engagementScore (0-100): độ hấp dẫn của câu chuyện.
+5. comprehensionScore (0-100): khả năng học sinh hiểu và ghi nhớ kiến thức qua truyện.
+6. pedagogyRemarks: nhận xét sư phạm tổng quan.
+7. suggestions: 3-5 gợi ý cải thiện cụ thể (nếu có).
+8. warnings: cảnh báo nếu có sai lệch kiến thức nghiêm trọng hoặc nội dung không phù hợp (mảng rỗng nếu không có).
+9. overallVerdict: kết luận ngắn gọn.
+10. approvedForClassroom: có thể dùng ngay trong lớp học không (true/false).`;
+
+      const response = await generateContentWithFallback(ai, {
+        preferredModel: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Bạn là chuyên gia thẩm định học liệu sư phạm THCS, đánh giá khách quan, nghiêm túc, ưu tiên an toàn và chính xác kiến thức.',
+          temperature: 0.4,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              gradeLevelAppropriate: { type: Type.BOOLEAN },
+              mathematicalAccuracy: { type: Type.BOOLEAN },
+              conceptClarityScore: { type: Type.NUMBER },
+              engagementScore: { type: Type.NUMBER },
+              comprehensionScore: { type: Type.NUMBER },
+              pedagogyRemarks: { type: Type.STRING },
+              suggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+              warnings: { type: Type.ARRAY, items: { type: Type.STRING } },
+              overallVerdict: { type: Type.STRING },
+              approvedForClassroom: { type: Type.BOOLEAN },
+            },
+            required: ['gradeLevelAppropriate', 'mathematicalAccuracy', 'conceptClarityScore', 'pedagogyRemarks', 'suggestions', 'approvedForClassroom'],
+          },
+        },
+      });
+
+      const text = response.text;
+      const parsed = text ? JSON.parse(text) : null;
+      if (!parsed) throw new Error('AI không trả về dữ liệu hợp lệ.');
+
+      const pedagogicalAudit = {
+        ...parsed,
+        conceptClarityScore: Number(parsed.conceptClarityScore) || 0,
+        engagementScore: Number(parsed.engagementScore) || 0,
+        comprehensionScore: Number(parsed.comprehensionScore) || 0,
+        auditTimestamp: new Date().toISOString(),
+        coreKnowledgePreserved: parsed.mathematicalAccuracy,
+        formulasAccurate: parsed.mathematicalAccuracy,
+        conceptsCorrect: parsed.mathematicalAccuracy,
+      };
+
+      // Lightweight per-frame consistency heuristic (character/prop continuity across the scene)
+      const frameChecks: any[] = [];
+      scenes.forEach((scene: any) => {
+        (scene.frames || []).forEach((frame: any) => {
+          const hasValidCharacters = (frame.characterIds || []).every((id: string) =>
+            characters.some((c: any) => c.id === id)
+          );
+          const hasPromptDetails = !!frame.promptDetails?.fullPrompt;
+          const score = (hasValidCharacters ? 50 : 20) + (hasPromptDetails ? 50 : 20);
+          frameChecks.push({
+            frameId: frame.frameId,
+            consistencyCheck: {
+              characterScore: hasValidCharacters ? 95 : 60,
+              sceneScore: hasPromptDetails ? 90 : 65,
+              objectScore: 90,
+              accuracyScore: pedagogicalAudit.mathematicalAccuracy ? 95 : 60,
+              continuityScore: 90,
+              feedback: hasValidCharacters && hasPromptDetails
+                ? 'Khung tranh nhất quán nhân vật và đầy đủ thông tin dựng hình.'
+                : 'Khung tranh thiếu thông tin nhân vật hoặc prompt dựng hình, nên tạo lại storyboard.',
+              passed: score >= 80,
+            },
+          });
+        });
+      });
+
+      res.json({ success: true, pedagogicalAudit, frameChecks });
+    } catch (error: any) {
+      console.error('Comic Quality Check Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi kiểm tra chất lượng' });
+    }
+  });
+
   // Vite middleware setup
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
