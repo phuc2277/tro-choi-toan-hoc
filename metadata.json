@@ -1,0 +1,11 @@
+{
+  "name": "Trắc Nghiệm Cử Chỉ AI - THCS",
+  "description": "Hệ thống toàn diện cho giáo viên THCS: AI Truyện Tranh Bài Học 8 bước chuẩn GDPT 2018, Kho tài liệu giáo án CV 5512, Ngân hàng câu hỏi phân cấp, Bộ công cụ tạo đề và 9 trò chơi học tập tương tác.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

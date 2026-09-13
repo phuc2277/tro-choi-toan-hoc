@@ -1,0 +1,573 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* 3D Youthful Gamified Buttons */
+.btn-3d-emerald {
+  background: linear-gradient(180deg, #10B981 0%, #059669 100%);
+  box-shadow: 0 4px 0 #047857, 0 6px 12px rgba(5, 150, 105, 0.35);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-emerald:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #047857, 0 8px 16px rgba(5, 150, 105, 0.45);
+}
+.btn-3d-emerald:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #047857, 0 2px 4px rgba(5, 150, 105, 0.3);
+}
+
+.btn-3d-indigo {
+  background: linear-gradient(180deg, #6366F1 0%, #4F46E5 100%);
+  box-shadow: 0 4px 0 #3730A3, 0 6px 12px rgba(79, 70, 229, 0.35);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-indigo:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #3730A3, 0 8px 16px rgba(79, 70, 229, 0.45);
+}
+.btn-3d-indigo:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #3730A3, 0 2px 4px rgba(79, 70, 229, 0.3);
+}
+
+.btn-3d-amber {
+  background: linear-gradient(180deg, #F59E0B 0%, #D97706 100%);
+  box-shadow: 0 4px 0 #B45309, 0 6px 12px rgba(217, 119, 6, 0.35);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-amber:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #B45309, 0 8px 16px rgba(217, 119, 6, 0.45);
+}
+.btn-3d-amber:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #B45309, 0 2px 4px rgba(217, 119, 6, 0.3);
+}
+
+.btn-3d-rose {
+  background: linear-gradient(180deg, #F43F5E 0%, #E11D48 100%);
+  box-shadow: 0 4px 0 #BE123C, 0 6px 12px rgba(225, 29, 72, 0.35);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-rose:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #BE123C, 0 8px 16px rgba(225, 29, 72, 0.45);
+}
+.btn-3d-rose:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #BE123C, 0 2px 4px rgba(225, 29, 72, 0.3);
+}
+
+.btn-3d-cyan {
+  background: linear-gradient(180deg, #06B6D4 0%, #0891B2 100%);
+  box-shadow: 0 4px 0 #0E7490, 0 6px 12px rgba(8, 145, 178, 0.35);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-cyan:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #0E7490, 0 8px 16px rgba(8, 145, 178, 0.45);
+}
+.btn-3d-cyan:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #0E7490, 0 2px 4px rgba(8, 145, 178, 0.3);
+}
+
+.btn-3d-purple {
+  background: linear-gradient(180deg, #A855F7 0%, #9333EA 100%);
+  box-shadow: 0 4px 0 #7E22CE, 0 6px 12px rgba(147, 51, 234, 0.35);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-purple:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #7E22CE, 0 8px 16px rgba(147, 51, 234, 0.45);
+}
+.btn-3d-purple:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #7E22CE, 0 2px 4px rgba(147, 51, 234, 0.3);
+}
+
+/* 3D Card Hover Depth */
+.card-3d-effect {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-3d-effect:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.12), 0 12px 14px -6px rgba(0, 0, 0, 0.06);
+}
+
+/* 3D Glossy Citrus Yellow Button */
+.btn-3d-citrus {
+  background: linear-gradient(180deg, #FEF08A 0%, #FACC15 45%, #EAB308 100%);
+  box-shadow: 0 4px 0 #CA8A04, 0 6px 14px rgba(202, 138, 4, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+  color: #713F12;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-citrus:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(180deg, #FEF9C3 0%, #FDE047 45%, #EAB308 100%);
+  box-shadow: 0 6px 0 #CA8A04, 0 8px 18px rgba(202, 138, 4, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+}
+.btn-3d-citrus:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #CA8A04, 0 2px 4px rgba(202, 138, 4, 0.3);
+}
+
+/* 3D Glossy Teal Button */
+.btn-3d-teal {
+  background: linear-gradient(180deg, #2DD4BF 0%, #14B8A6 45%, #0D9488 100%);
+  box-shadow: 0 4px 0 #0F766E, 0 6px 14px rgba(13, 148, 136, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+  color: #FFFFFF;
+  text-shadow: 0 1px 2px rgba(15, 118, 110, 0.7);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-teal:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #0F766E, 0 8px 18px rgba(13, 148, 136, 0.5);
+}
+.btn-3d-teal:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #0F766E, 0 2px 4px rgba(13, 148, 136, 0.3);
+}
+
+/* 3D Glossy Lavender Purple Button */
+.btn-3d-lavender {
+  background: linear-gradient(180deg, #D8B4FE 0%, #C084FC 45%, #9333EA 100%);
+  box-shadow: 0 4px 0 #7E22CE, 0 6px 14px rgba(147, 51, 234, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.7);
+  color: #FFFFFF;
+  text-shadow: 0 1px 2px rgba(88, 28, 135, 0.7);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-lavender:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #7E22CE, 0 8px 18px rgba(147, 51, 234, 0.5);
+}
+.btn-3d-lavender:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #7E22CE, 0 2px 4px rgba(147, 51, 234, 0.3);
+}
+
+/* 3D Card Stacking Effect */
+.card-3d-stack {
+  position: relative;
+  background: #FFFFFF;
+  border-radius: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05),
+              0 10px 20px -5px rgba(13, 148, 136, 0.08),
+              0 20px 25px -5px rgba(147, 51, 234, 0.06),
+              0 0 0 1px rgba(226, 232, 240, 0.8);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-3d-stack:hover {
+  transform: translateY(-6px) scale(1.01);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05),
+              0 20px 30px -10px rgba(13, 148, 136, 0.18),
+              0 30px 40px -15px rgba(147, 51, 234, 0.15),
+              0 0 0 1.5px rgba(45, 212, 191, 0.6);
+}
+
+/* 3D Press Down Filter Effect */
+.btn-3d-pressed {
+  box-shadow: inset 0 3px 6px rgba(15, 23, 42, 0.25), 0 1px 2px rgba(255, 255, 255, 0.8) !important;
+  transform: translateY(2px) !important;
+}
+.katex-display {
+  margin: 0.5em 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
+}
+.katex {
+  font-size: 1.08em;
+  text-rendering: optimizeLegibility;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* =================================================== */
+/* EDUVERSE DESIGN SYSTEM & GAMIFICATION THEME         */
+/* =================================================== */
+
+/* Glassmorphism Cards */
+.eduverse-glass {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  border-radius: 1.25rem;
+}
+
+.eduverse-glass-elevated {
+  background: rgba(30, 41, 59, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.5), 0 0 20px -2px rgba(56, 189, 248, 0.1);
+  border-radius: 1.5rem;
+}
+
+.eduverse-glass-interactive {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+  border-radius: 1.25rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.eduverse-glass-interactive:hover {
+  transform: translateY(-4px);
+  border-color: rgba(56, 189, 248, 0.35);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.6), 0 0 25px -4px rgba(56, 189, 248, 0.2);
+}
+
+/* Eduverse Tactile Gaming Buttons */
+.eduverse-btn-cyan {
+  background: linear-gradient(180deg, #22d3ee 0%, #06b6d4 50%, #0891b2 100%);
+  box-shadow: 0 4px 0 #0e7490, 0 8px 20px rgba(6, 182, 212, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(8, 145, 178, 0.8);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.eduverse-btn-cyan:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #0e7490, 0 12px 24px rgba(6, 182, 212, 0.45);
+}
+.eduverse-btn-cyan:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #0e7490, 0 2px 6px rgba(6, 182, 212, 0.3);
+}
+
+.eduverse-btn-purple {
+  background: linear-gradient(180deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
+  box-shadow: 0 4px 0 #7e22ce, 0 8px 20px rgba(168, 85, 247, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(126, 34, 206, 0.8);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.eduverse-btn-purple:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #7e22ce, 0 12px 24px rgba(168, 85, 247, 0.45);
+}
+.eduverse-btn-purple:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #7e22ce, 0 2px 6px rgba(168, 85, 247, 0.3);
+}
+
+.eduverse-btn-gold {
+  background: linear-gradient(180deg, #fde047 0%, #eab308 50%, #ca8a04 100%);
+  box-shadow: 0 4px 0 #a16207, 0 8px 20px rgba(234, 179, 8, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+  color: #713f12;
+  font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.eduverse-btn-gold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #a16207, 0 12px 24px rgba(234, 179, 8, 0.45);
+}
+.eduverse-btn-gold:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #a16207, 0 2px 6px rgba(234, 179, 8, 0.3);
+}
+
+/* Subtle Geometric Grid Overlay */
+.eduverse-grid-bg {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Shimmer Light Sweep for Portals */
+@keyframes portalShimmer {
+  0% { transform: translateX(-100%) rotate(45deg); }
+  100% { transform: translateX(200%) rotate(45deg); }
+}
+
+.animate-shimmer {
+  animation: portalShimmer 4s infinite ease-in-out;
+}
+
+/* Custom Scrollbar for Dark Cosmic Theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* =================================================== */
+/* KATEX MATHEMATICS ENHANCEMENT & CLARITY (DARK MODE) */
+/* =================================================== */
+.katex {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-size: 1.08em;
+}
+
+.math-content {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.inline-math-node {
+  color: inherit;
+  display: inline-flex;
+  align-items: baseline;
+  vertical-align: baseline;
+  -webkit-font-smoothing: antialiased;
+}
+
+.inline-math-node .katex {
+  color: inherit;
+  -webkit-font-smoothing: antialiased;
+}
+
+.inline-math-node .katex-html {
+  white-space: normal;
+}
+
+/* Cases and systems of equations formatting */
+.katex .matrix, .katex .cases {
+  white-space: normal;
+}
+
+.katex .delimsizing.size1,
+.katex .delimsizing.size2,
+.katex .delimsizing.size3,
+.katex .delimsizing.size4 {
+  font-family: KaTeX_Size1, KaTeX_Main, Times New Roman, serif;
+}
+
+/* Ensure math fraction lines and square root surds are crisp */
+.katex .frac-line {
+  border-bottom-width: 1.5px !important;
+}
+
+.katex .sqrt > .sqrt-line {
+  border-top-width: 1.5px !important;
+}
+
+/* =================================================== */
+/* PRESENTATION TEXT & BLOCK ANIMATION EFFECTS         */
+/* =================================================== */
+
+@keyframes animFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes animFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes animSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes animSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes animSlideLeft {
+  from {
+    opacity: 0;
+    transform: translateX(36px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes animSlideRight {
+  from {
+    opacity: 0;
+    transform: translateX(-36px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes animZoomIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes animBounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translateY(40px);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08) translateY(-8px);
+  }
+  70% {
+    transform: scale(0.96) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes animGlowPulse {
+  0% {
+    opacity: 0;
+    filter: drop-shadow(0 0 0 rgba(99, 102, 241, 0));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 16px rgba(99, 102, 241, 0.8));
+  }
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 0 rgba(99, 102, 241, 0));
+  }
+}
+
+@keyframes animSlideOutDown {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+}
+
+@keyframes animSlideOutUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+}
+
+@keyframes animZoomOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.anim-entrance-fade {
+  animation: animFadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-entrance-slide,
+.anim-entrance-slide-up {
+  animation: animSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-entrance-slide-down {
+  animation: animSlideDown 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-entrance-slide-left {
+  animation: animSlideLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-entrance-slide-right {
+  animation: animSlideRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-entrance-zoom {
+  animation: animZoomIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.anim-entrance-bounce {
+  animation: animBounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.anim-entrance-glow {
+  animation: animGlowPulse 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-exit-fade,
+.anim-exit-fade-out {
+  animation: animFadeOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-exit-slide-down {
+  animation: animSlideOutDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-exit-slide-up {
+  animation: animSlideOutUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-exit-zoom-out,
+.anim-exit-shrink {
+  animation: animZoomOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+
