@@ -122,6 +122,13 @@ export interface ComicFrame {
   consistencyCheck?: ConsistencyCheckResult;
 }
 
+export interface GeneratedAudioClip {
+  audioBase64: string; // base64-encoded WAV
+  mimeType: string;
+  durationSec: number;
+  voiceName?: string;
+}
+
 export interface ComicScene {
   sceneId: string; // e.g. "SC01"
   sceneNumber: number; // 1 - 8
@@ -149,6 +156,10 @@ export interface ComicScene {
   videoMotion: string;
   estimatedDurationSec: number;
   frames: ComicFrame[];
+  // AI-generated audio (Step 7: Audio Director) — optional, filled in after real TTS/music synthesis
+  narrationAudio?: GeneratedAudioClip;
+  dialogueAudio?: Array<GeneratedAudioClip | null>; // index-aligned with `dialogue`
+  bgmAudio?: GeneratedAudioClip;
 }
 
 export interface PedagogicalAuditReport {

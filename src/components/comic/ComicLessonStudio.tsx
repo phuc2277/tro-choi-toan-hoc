@@ -287,6 +287,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             onUpdateArtStyle={handleUpdateArtStyle}
             onNextStep={() => setCurrentStep(7)}
             onPrevStep={() => setCurrentStep(5)}
+            knowledgeProfile={project.knowledgeProfile}
           />
         )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ComicScene, CharacterProfile } from '../../types/comicLesson';
 import {
   Mic,
@@ -12,6 +12,9 @@ import {
   ArrowRight,
   Sliders,
   VolumeX,
+  Wand2,
+  Loader2,
+  Download,
 } from 'lucide-react';
 
 interface Step7AudioDirectorProps {
@@ -21,6 +24,14 @@ interface Step7AudioDirectorProps {
   onNextStep: () => void;
   onPrevStep: () => void;
 }
+
+// Chọn giọng đọc AI (Gemini TTS) theo vai trò / giới tính nhân vật để giữ nhất quán xuyên truyện
+const pickVoiceForCharacter = (char?: CharacterProfile): string => {
+  if (!char) return 'Charon';
+  if (char.role === 'teacher' || char.role === 'guide') return char.gender === 'female' ? 'Leda' : 'Orus';
+  return char.gender === 'female' ? 'Kore' : 'Puck';
+};
+const NARRATOR_VOICE = 'Charon'; // "Informative and clear" — phù hợp vai người dẫn chuyện
 
 export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
   scenes,
@@ -33,10 +44,13 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
   const [speakingText, setSpeakingText] = useState<string | null>(null);
   const [bgmVolume, setBgmVolume] = useState<number>(40);
   const [selectedBgm, setSelectedBgm] = useState<string>('bright-school-acoustic');
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   const currentScene = scenes[selectedSceneIndex] || scenes[0];
 
-  // Web Speech API Voice synthesis
+  // Web Speech API Voice synthesis (nghe thử nhanh, không cần chờ mạng)
   const speakText = (text: string, voiceType: 'narrator' | 'male' | 'female' = 'narrator') => {
     if (!('speechSynthesis' in window)) {
       alert('Trình duyệt của bạn chưa hỗ trợ Web Speech API.');
@@ -79,6 +93,127 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
     onUpdateScenes(updated);
   };
 
+  // Play a generated WAV clip (base64) through the shared <audio> element
+  const playGeneratedClip = (audioBase64: string, mimeType: string) => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+    const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+    audioPlayerRef.current = audio;
+    audio.play().catch(() => setAudioError('Không thể phát audio. Vui lòng thử lại.'));
+  };
+
+  // AI sinh giọng đọc thật (Gemini TTS) cho lời dẫn chuyện của cảnh hiện tại
+  const handleGenerateNarrationAudio = async () => {
+    if (!currentScene.narration.trim()) return;
+    setGeneratingKey('narration');
+    setAudioError(null);
+    try {
+      const res = await fetch('/api/comic/synthesize-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: currentScene.narration, voiceName: NARRATOR_VOICE }),
+      });
+      const data = await res.json();
+      if (res.ok && data.audioBase64) {
+        handleUpdateSceneAudio({
+          narrationAudio: {
+            audioBase64: data.audioBase64,
+            mimeType: data.mimeType,
+            durationSec: data.durationSec,
+            voiceName: NARRATOR_VOICE,
+          },
+        });
+        playGeneratedClip(data.audioBase64, data.mimeType);
+      } else {
+        setAudioError(data.error || 'AI không thể tạo giọng đọc lúc này.');
+      }
+    } catch {
+      setAudioError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setGeneratingKey(null);
+    }
+  };
+
+  // AI sinh giọng đọc thật cho 1 câu thoại nhân vật
+  const handleGenerateDialogueAudio = async (dIdx: number) => {
+    const item = currentScene.dialogue[dIdx];
+    if (!item?.text.trim()) return;
+    const char = characters.find((c) => c.id === item.characterId);
+    const voiceName = pickVoiceForCharacter(char);
+    setGeneratingKey(`dialogue-${dIdx}`);
+    setAudioError(null);
+    try {
+      const res = await fetch('/api/comic/synthesize-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: item.text, voiceName }),
+      });
+      const data = await res.json();
+      if (res.ok && data.audioBase64) {
+        const dialogueAudio = [...(currentScene.dialogueAudio || [])];
+        dialogueAudio[dIdx] = {
+          audioBase64: data.audioBase64,
+          mimeType: data.mimeType,
+          durationSec: data.durationSec,
+          voiceName,
+        };
+        handleUpdateSceneAudio({ dialogueAudio });
+        playGeneratedClip(data.audioBase64, data.mimeType);
+      } else {
+        setAudioError(data.error || 'AI không thể tạo giọng đọc lúc này.');
+      }
+    } catch {
+      setAudioError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setGeneratingKey(null);
+    }
+  };
+
+  const bgmPresets: Record<string, string> = {
+    'bright-school-acoustic': 'cheerful acoustic guitar and ukulele, bright school morning mood, light percussion',
+    'curious-discovery': 'soft curious synth pads and glockenspiel, wonder and discovery mood, gentle build-up',
+    'victory-celebration': 'upbeat cheerful victory fanfare, bells and claps, triumphant classroom celebration',
+    'calm-reflective': 'calm reflective piano and strings, gentle wind-down mood for lesson conclusion',
+  };
+
+  // AI sinh nhạc nền thật cho cảnh hiện tại (dùng lại endpoint nhạc AI sẵn có /api/ai/generate-music)
+  const handleGenerateBgm = async () => {
+    setGeneratingKey('bgm');
+    setAudioError(null);
+    try {
+      const res = await fetch('/api/ai/generate-music', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `${bgmPresets[selectedBgm]}, educational comic background music for scene "${currentScene.sceneName}"`,
+          durationSeconds: Math.min(30, Math.max(10, currentScene.estimatedDurationSec)),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.audioBase64) {
+        handleUpdateSceneAudio({
+          bgmAudio: {
+            audioBase64: data.audioBase64,
+            mimeType: data.mimeType || 'audio/wav',
+            durationSec: Math.min(30, Math.max(10, currentScene.estimatedDurationSec)),
+          },
+        });
+        playGeneratedClip(data.audioBase64, data.mimeType || 'audio/wav');
+      } else if (res.ok && data.composition) {
+        setAudioError(
+          'Mô hình nhạc AI hiện chỉ trả về bản phối mô tả (không phải file audio) — thử lại sau hoặc dùng thư viện nhạc nền có sẵn.'
+        );
+      } else {
+        setAudioError(data.error || 'AI không thể tạo nhạc nền lúc này.');
+      }
+    } catch {
+      setAudioError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
+      setGeneratingKey(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -99,11 +234,20 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
         </div>
 
         {/* Global BGM Control */}
-        <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 flex items-center gap-3 shrink-0">
+        <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 flex items-center gap-3 shrink-0 flex-wrap">
           <Music className="w-4 h-4 text-teal-400" />
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block">Nhạc Nền (BGM):</span>
-            <span className="text-xs font-bold text-white">Âm Hưởng Học Đường Vui Tươi</span>
+            <select
+              value={selectedBgm}
+              onChange={(e) => setSelectedBgm(e.target.value)}
+              className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
+            >
+              <option value="bright-school-acoustic">Âm Hưởng Học Đường Vui Tươi</option>
+              <option value="curious-discovery">Tò Mò Khám Phá</option>
+              <option value="victory-celebration">Chiến Thắng Ăn Mừng</option>
+              <option value="calm-reflective">Lắng Đọng Tổng Kết</option>
+            </select>
           </div>
           <div className="flex items-center gap-1.5 ml-2">
             <input
@@ -116,8 +260,31 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
             />
             <span className="text-[10px] font-mono text-slate-400">{bgmVolume}%</span>
           </div>
+          <button
+            onClick={handleGenerateBgm}
+            disabled={generatingKey === 'bgm'}
+            className="px-2.5 py-1.5 rounded-lg bg-teal-600/30 hover:bg-teal-600/50 border border-teal-500/40 text-teal-200 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-60"
+          >
+            {generatingKey === 'bgm' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+            {currentScene?.bgmAudio ? 'Tạo Lại BGM' : 'AI Sinh BGM'}
+          </button>
+          {currentScene?.bgmAudio && (
+            <button
+              onClick={() => playGeneratedClip(currentScene.bgmAudio!.audioBase64, currentScene.bgmAudio!.mimeType)}
+              className="p-1.5 rounded-lg bg-slate-800 text-teal-300 hover:bg-slate-700 cursor-pointer"
+              title="Nghe lại nhạc nền đã tạo"
+            >
+              <Play className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
+
+      {audioError && (
+        <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-medium">
+          {audioError}
+        </div>
+      )}
 
       {/* Main Studio View */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -186,24 +353,51 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
                   </span>
                 </div>
 
-                <button
-                  onClick={() => speakText(currentScene.narration, 'narrator')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                    speakingText === currentScene.narration
-                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                      : 'bg-teal-600/20 text-teal-300 hover:bg-teal-600/40 border border-teal-500/30'
-                  }`}
-                >
-                  {speakingText === currentScene.narration ? (
-                    <>
-                      <Square className="w-3 h-3" /> Dừng Phát
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3 h-3" /> Nghe Giọng Đọc
-                    </>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleGenerateNarrationAudio}
+                    disabled={generatingKey === 'narration'}
+                    className="px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 text-purple-200 disabled:opacity-60"
+                    title="AI sinh giọng đọc thật (Gemini TTS)"
+                  >
+                    {generatingKey === 'narration' ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3 h-3" />
+                    )}
+                    {currentScene.narrationAudio ? 'Tạo Lại Giọng AI' : 'AI Sinh Giọng Đọc'}
+                  </button>
+
+                  {currentScene.narrationAudio && (
+                    <button
+                      onClick={() => playGeneratedClip(currentScene.narrationAudio!.audioBase64, currentScene.narrationAudio!.mimeType)}
+                      className="p-1.5 rounded-lg bg-slate-800 text-purple-300 hover:bg-slate-700 cursor-pointer"
+                      title="Nghe lại giọng đọc AI đã tạo"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                    </button>
                   )}
-                </button>
+
+                  <button
+                    onClick={() => speakText(currentScene.narration, 'narrator')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      speakingText === currentScene.narration
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        : 'bg-teal-600/20 text-teal-300 hover:bg-teal-600/40 border border-teal-500/30'
+                    }`}
+                    title="Nghe thử nhanh bằng giọng đọc trình duyệt"
+                  >
+                    {speakingText === currentScene.narration ? (
+                      <>
+                        <Square className="w-3 h-3" /> Dừng
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3 h-3" /> Nghe Thử Nhanh
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <textarea
@@ -260,26 +454,56 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
                         </div>
                       </div>
 
-                      <button
-                        onClick={() =>
-                          speakText(item.text, char?.gender === 'female' ? 'female' : 'male')
-                        }
-                        className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
-                          isSpeakingThis
-                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                            : 'bg-slate-800 text-slate-300 hover:bg-cyan-600 hover:text-white'
-                        }`}
-                      >
-                        {isSpeakingThis ? (
-                          <>
-                            <Square className="w-3 h-3" /> Dừng
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-3 h-3" /> Nghe Thử
-                          </>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleGenerateDialogueAudio(dIdx)}
+                          disabled={generatingKey === `dialogue-${dIdx}`}
+                          className="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 text-purple-200 disabled:opacity-60"
+                          title="AI sinh giọng đọc thật cho câu thoại này"
+                        >
+                          {generatingKey === `dialogue-${dIdx}` ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Wand2 className="w-3 h-3" />
+                          )}
+                          {currentScene.dialogueAudio?.[dIdx] ? 'Tạo Lại' : 'AI Giọng'}
+                        </button>
+
+                        {currentScene.dialogueAudio?.[dIdx] && (
+                          <button
+                            onClick={() =>
+                              playGeneratedClip(
+                                currentScene.dialogueAudio![dIdx]!.audioBase64,
+                                currentScene.dialogueAudio![dIdx]!.mimeType
+                              )
+                            }
+                            className="p-1.5 rounded-lg bg-slate-800 text-purple-300 hover:bg-slate-700 cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                          </button>
                         )}
-                      </button>
+
+                        <button
+                          onClick={() =>
+                            speakText(item.text, char?.gender === 'female' ? 'female' : 'male')
+                          }
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                            isSpeakingThis
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              : 'bg-slate-800 text-slate-300 hover:bg-cyan-600 hover:text-white'
+                          }`}
+                        >
+                          {isSpeakingThis ? (
+                            <>
+                              <Square className="w-3 h-3" /> Dừng
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-3 h-3" /> Thử Nhanh
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

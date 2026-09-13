@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ComicLessonProject, ComicScene, ComicFrame } from '../../types/comicLesson';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
+import { exportComicVideo, isVideoExportSupported, ExportProgress } from './videoExport';
 import {
   BookOpen,
   Video,
@@ -23,6 +24,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Loader2,
+  Film,
 } from 'lucide-react';
 
 interface Step8VideoAndReaderProps {
@@ -39,6 +42,11 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
   // Presentation mode: 'reader' (Lật trang/khung tranh) or 'video' (Ken Burns Video Player)
   const [viewMode, setViewMode] = useState<'reader' | 'video'>('video');
   const [videoStyle, setVideoStyle] = useState<'ken-burns' | 'ai-animated'>('ken-burns');
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportedVideoUrl, setExportedVideoUrl] = useState<string | null>(null);
 
   // Flatten frames
   const allFrames: Array<{ scene: ComicScene; frame: ComicFrame }> = [];
@@ -120,6 +128,39 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
     downloadAnchor.remove();
   };
 
+  // Xuất video thật (.webm): chụp từng khung, sinh giọng đọc AI, dựng Ken Burns, ghi bằng MediaRecorder
+  const handleExportVideo = async () => {
+    if (!stageRef.current) return;
+    if (!isVideoExportSupported()) {
+      setExportError('Trình duyệt của bạn không hỗ trợ ghi video. Vui lòng dùng Chrome hoặc Edge trên máy tính.');
+      return;
+    }
+    setIsPlaying(false);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setIsExporting(true);
+    setExportError(null);
+    setExportedVideoUrl(null);
+    try {
+      const blob = await exportComicVideo(project, allFrames, stageRef.current, setCurrentFrameIdx, setExportProgress);
+      const url = URL.createObjectURL(blob);
+      setExportedVideoUrl(url);
+    } catch (err: any) {
+      setExportError(err.message || 'Lỗi không xác định khi xuất video.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadVideo = () => {
+    if (!exportedVideoUrl) return;
+    const a = document.createElement('a');
+    a.href = exportedVideoUrl;
+    a.download = `${project.title.toLowerCase().replace(/\s+/g, '_')}_video.webm`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const audit = {
     coreKnowledgePreserved: project.pedagogicalAudit?.coreKnowledgePreserved ?? true,
     formulasAccurate: project.pedagogicalAudit?.mathematicalAccuracy ?? true,
@@ -197,6 +238,7 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
           <div className="relative rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden shadow-2xl p-2 flex flex-col items-center justify-center min-h-[460px]">
             {/* Live Visual Illustration Renderer */}
             <div
+              ref={stageRef}
               className={`transition-all duration-700 w-full flex justify-center ${
                 viewMode === 'video' && videoStyle === 'ken-burns' && isPlaying
                   ? 'animate-pulse scale-[1.02]'
@@ -320,7 +362,7 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 onClick={() => setShowPedagogyReport(!showPedagogyReport)}
                 className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
@@ -328,6 +370,26 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>Báo Cáo Sư Phạm</span>
               </button>
+
+              <button
+                onClick={handleExportVideo}
+                disabled={isExporting}
+                className="px-3 py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                title="AI dựng video thật (.webm) với giọng đọc và hiệu ứng Ken Burns"
+              >
+                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
+                <span>{isExporting ? 'Đang Xuất Video...' : 'Xuất Video Thật (.webm)'}</span>
+              </button>
+
+              {exportedVideoUrl && (
+                <button
+                  onClick={handleDownloadVideo}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Tải Video (.webm)</span>
+                </button>
+              )}
 
               <button
                 onClick={handleExportJSON}
@@ -339,6 +401,43 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
               </button>
             </div>
           </div>
+
+          {isExporting && exportProgress && (
+            <div className="p-4 rounded-2xl bg-purple-950/30 border border-purple-500/30 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-purple-200">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> {exportProgress.message}
+                </span>
+                <span className="font-mono">
+                  {exportProgress.frameIndex + 1}/{exportProgress.totalFrames}
+                </span>
+              </div>
+              <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-purple-400 h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(100, ((exportProgress.frameIndex + 1) / Math.max(1, exportProgress.totalFrames)) * 100)}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-purple-300/80">
+                Quá trình ghi chạy theo thời lượng thật của video (khoảng {Math.round(allFrames.reduce((s, f) => s + f.scene.estimatedDurationSec / Math.max(1, f.scene.frames.length), 0))} giây) — vui lòng giữ tab này mở, đừng chuyển bước.
+              </p>
+            </div>
+          )}
+
+          {exportError && (
+            <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-medium">
+              {exportError}
+            </div>
+          )}
+
+          {exportedVideoUrl && !isExporting && (
+            <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
+              <p className="text-xs text-emerald-200 font-bold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" /> Video đã sẵn sàng! Xem thử bên dưới hoặc tải về.
+              </p>
+              <video src={exportedVideoUrl} controls className="w-full rounded-xl border border-slate-800 max-h-72" />
+            </div>
+          )}
         </div>
 
         {/* Right 1 Col: Pedagogical Audit Report & Lesson Summary */}

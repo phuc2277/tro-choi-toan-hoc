@@ -9,6 +9,28 @@ import * as pdfParsePkg from 'pdf-parse';
 const pdfParse: (dataBuffer: Buffer, options?: any) => Promise<{ text: string; numpages: number; info: any }> =
   (pdfParsePkg as any).default || pdfParsePkg;
 
+// Wrap raw 16-bit PCM audio (as returned by Gemini TTS models) into a playable WAV file buffer
+function pcmToWav(pcmBuffer: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16): Buffer {
+  const byteRate = (sampleRate * channels * bitDepth) / 8;
+  const blockAlign = (channels * bitDepth) / 8;
+  const dataSize = pcmBuffer.length;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM format
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitDepth, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
 dotenv.config();
 
 function getGenAI(): GoogleGenAI {
@@ -1877,7 +1899,59 @@ Yêu cầu xây dựng:
     }
   });
 
-  // 9c. AI Suggest Characters from Knowledge Profile + Story Kernel
+  // 9c. AI Text-to-Speech: sinh giọng đọc thật cho lời dẫn / hội thoại (dùng cho Bước 7 & xuất Video Bước 8)
+  app.post('/api/comic/synthesize-speech', async (req, res) => {
+    try {
+      const { text = '', voiceName = 'Kore' } = req.body;
+      if (!text.trim()) return res.status(400).json({ error: 'Thiếu nội dung cần đọc' });
+
+      const ai = getGenAI();
+      const ttsModels = ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
+      let audioData = '';
+      let lastError: any = null;
+
+      for (const model of ttsModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [{ parts: [{ text }] }],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName } },
+              },
+            },
+          } as any);
+          const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (data) {
+            audioData = data;
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+        }
+      }
+
+      if (!audioData) throw lastError || new Error('AI không thể tạo giọng đọc lúc này.');
+
+      const pcmBuffer = Buffer.from(audioData, 'base64');
+      const wavBuffer = pcmToWav(pcmBuffer, 24000, 1, 16);
+      const durationSec = pcmBuffer.length / (24000 * 1 * 2);
+
+      res.json({
+        success: true,
+        audioBase64: wavBuffer.toString('base64'),
+        mimeType: 'audio/wav',
+        durationSec: Math.max(0.5, durationSec),
+        voiceName,
+      });
+    } catch (error: any) {
+      console.error('Comic TTS Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi tạo giọng đọc AI' });
+    }
+  });
+
+  // 9d. AI Suggest Characters from Knowledge Profile + Story Kernel
   app.post('/api/comic/generate-characters', async (req, res) => {
     try {
       const { knowledgeProfile, storyKernel, characterCount = 4 } = req.body;
@@ -1943,7 +2017,7 @@ Yêu cầu mỗi nhân vật:
     }
   });
 
-  // 9d. AI Generate Full 8-Scene Script from Knowledge Profile + Story Kernel + Characters
+  // 9e. AI Generate Full 8-Scene Script from Knowledge Profile + Story Kernel + Characters
   app.post('/api/comic/generate-script', async (req, res) => {
     try {
       const { knowledgeProfile, storyKernel, characters = [] } = req.body;
@@ -2057,7 +2131,7 @@ Mỗi cảnh cần: sceneName (ngắn gọn), educationalGoal, environmentName (
     }
   });
 
-  // 9e. AI Edit Single Scene (6 specialized actions used by Step 4 Script Editor)
+  // 9f. AI Edit Single Scene (6 specialized actions used by Step 4 Script Editor)
   app.post('/api/comic/ai-edit-scene', async (req, res) => {
     try {
       const { action, scene, knowledgeProfile } = req.body;
@@ -2106,7 +2180,7 @@ Trả về TOÀN BỘ object cảnh đã chỉnh sửa với CÙNG CẤU TRÚC J
     }
   });
 
-  // 9f. AI Generate Storyboard Frames for a Scene
+  // 9g. AI Generate Storyboard Frames for a Scene
   app.post('/api/comic/generate-storyboard', async (req, res) => {
     try {
       const { scene, characters = [], knowledgeProfile, frameCount = 3 } = req.body;
@@ -2246,7 +2320,7 @@ Mỗi khung cần:
     }
   });
 
-  // 9g. AI Quality Check: Pedagogical accuracy + Visual/Character Consistency Audit
+  // 9h. AI Quality Check: Pedagogical accuracy + Visual/Character Consistency Audit
   app.post('/api/comic/quality-check', async (req, res) => {
     try {
       const { knowledgeProfile, characters = [], scenes = [] } = req.body;

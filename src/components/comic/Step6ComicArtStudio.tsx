@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ComicScene, ComicFrame, CharacterProfile, ComicArtStyle } from '../../types/comicLesson';
+import { ComicScene, ComicFrame, CharacterProfile, ComicArtStyle, LessonKnowledgeProfile } from '../../types/comicLesson';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
 import {
   Palette,
@@ -26,6 +26,7 @@ interface Step6ComicArtStudioProps {
   onUpdateArtStyle: (style: ComicArtStyle) => void;
   onNextStep: () => void;
   onPrevStep: () => void;
+  knowledgeProfile?: LessonKnowledgeProfile;
 }
 
 export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
@@ -36,6 +37,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   onUpdateArtStyle,
   onNextStep,
   onPrevStep,
+  knowledgeProfile,
 }) => {
   // Extract all frames
   const allFrames: Array<{ scene: ComicScene; frame: ComicFrame }> = [];
@@ -50,51 +52,57 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   const [showOverlay, setShowOverlay] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'preview' | 'prompt' | 'consistency'>('preview');
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   const currentPair = allFrames[selectedFrameIndex] || allFrames[0];
   const currentFrame = currentPair?.frame;
   const currentScene = currentPair?.scene;
 
-  // Run Consistency Check on Current Frame
-  const handleRunConsistencyCheck = () => {
+  // Run Consistency Check on Current Frame — calls the real AI quality-check endpoint
+  // across the whole project (kiến thức + nhất quán nhân vật/bối cảnh) and applies the
+  // result for this frame.
+  const handleRunConsistencyCheck = async () => {
+    if (!knowledgeProfile) {
+      setAuditError('Thiếu hồ sơ kiến thức bài học để đối chiếu.');
+      return;
+    }
     setIsAuditing(true);
-    setTimeout(() => {
-      const updated = scenes.map((s) => {
-        if (s.sceneId !== currentScene.sceneId) return s;
-        return {
-          ...s,
-          frames: s.frames.map((f) => {
-            if (f.frameId !== currentFrame.frameId) return f;
-            return {
-              ...f,
-              consistencyCheck: {
-                characterScore: 98,
-                sceneScore: 96,
-                objectScore: 95,
-                accuracyScore: 100,
-                continuityScore: 97,
-                feedback:
-                  'Tuyệt vời! Trang phục nhân vật chuẩn xác (Minh áo xanh, Lan áo vàng và kính cận, Nam áo cam). Bối cảnh sân trường và tia nắng 40 độ đổ bóng vuông góc hoàn toàn nhất quán.',
-                passed: true,
-              },
-            };
-          }),
-        };
+    setAuditError(null);
+    try {
+      const res = await fetch('/api/comic/quality-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ knowledgeProfile, characters, scenes }),
       });
-      onUpdateScenes(updated);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.frameChecks)) {
+        const checkMap: Record<string, any> = {};
+        data.frameChecks.forEach((fc: any) => {
+          checkMap[fc.frameId] = fc.consistencyCheck;
+        });
+        const updated = scenes.map((s) => ({
+          ...s,
+          frames: s.frames.map((f) => (checkMap[f.frameId] ? { ...f, consistencyCheck: checkMap[f.frameId] } : f)),
+        }));
+        onUpdateScenes(updated);
+      } else {
+        setAuditError(data.error || 'AI không thể kiểm tra nhất quán lúc này.');
+      }
+    } catch {
+      setAuditError('Lỗi kết nối tới máy chủ AI. Vui lòng thử lại.');
+    } finally {
       setIsAuditing(false);
-    }, 500);
+    }
   };
 
   const consistency = currentFrame?.consistencyCheck || {
-    characterScore: 98,
-    sceneScore: 96,
-    objectScore: 95,
-    accuracyScore: 100,
-    continuityScore: 97,
-    feedback:
-      'Hệ thống AI đã thẩm định: Nhân vật nhất quán 100%, bối cảnh sân trường chuẩn GDPT 2018, công thức Toán học chuẩn xác.',
-    passed: true,
+    characterScore: 0,
+    sceneScore: 0,
+    objectScore: 0,
+    accuracyScore: 0,
+    continuityScore: 0,
+    feedback: 'Chưa chạy kiểm tra AI cho khung hình này. Bấm "Kiểm Tra Lại" để AI đối chiếu kiến thức và tính nhất quán nhân vật/bối cảnh.',
+    passed: false,
   };
 
   return (
@@ -378,11 +386,17 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
                 <button
                   onClick={handleRunConsistencyCheck}
                   disabled={isAuditing}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold flex items-center gap-1 cursor-pointer disabled:opacity-60"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isAuditing ? 'animate-spin' : ''}`} /> Kiểm Tra Lại
+                  <RefreshCw className={`w-3 h-3 ${isAuditing ? 'animate-spin' : ''}`} /> {isAuditing ? 'AI Đang Kiểm Tra...' : 'Kiểm Tra Lại'}
                 </button>
               </div>
+
+              {auditError && (
+                <p className="text-[11px] text-rose-300 bg-rose-950/30 border border-rose-500/30 rounded-lg px-2.5 py-1.5">
+                  {auditError}
+                </p>
+              )}
 
               {/* 5 Criteria Gauges */}
               <div className="space-y-2.5 text-xs">
