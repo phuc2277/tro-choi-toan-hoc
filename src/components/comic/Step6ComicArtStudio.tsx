@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ComicScene, ComicFrame, CharacterProfile, ComicArtStyle, LessonKnowledgeProfile } from '../../types/comicLesson';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
+import { toPng } from 'html-to-image';
 import {
   Palette,
   Sparkles,
@@ -16,6 +17,8 @@ import {
   ArrowRight,
   Eye,
   Sliders,
+  Clapperboard,
+  Loader2,
 } from 'lucide-react';
 
 interface Step6ComicArtStudioProps {
@@ -53,10 +56,84 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   const [activeTab, setActiveTab] = useState<'preview' | 'prompt' | 'consistency'>('preview');
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const frameStageRef = useRef<HTMLDivElement | null>(null);
+  const [aiVideoStatus, setAiVideoStatus] = useState<'idle' | 'capturing' | 'submitting' | 'polling' | 'error'>('idle');
+  const [aiVideoError, setAiVideoError] = useState<string | null>(null);
 
   const currentPair = allFrames[selectedFrameIndex] || allFrames[0];
   const currentFrame = currentPair?.frame;
   const currentScene = currentPair?.scene;
+
+  const updateCurrentFrame = (partial: Partial<ComicFrame>) => {
+    if (!currentScene || !currentFrame) return;
+    const updated = scenes.map((s) => {
+      if (s.sceneId !== currentScene.sceneId) return s;
+      return {
+        ...s,
+        frames: s.frames.map((f) => (f.frameId === currentFrame.frameId ? { ...f, ...partial } : f)),
+      };
+    });
+    onUpdateScenes(updated);
+  };
+
+  // AI Video (Veo): sinh video chuyển động thật từ ảnh khung hình hiện tại.
+  // Chỉ dùng cho khung được đánh dấu "cần chuyển động thực sự" — Bước 8 sẽ ưu tiên
+  // dùng clip này thay vì hiệu ứng Ken Burns tĩnh khi xuất video hoàn chỉnh.
+  const handleGenerateAiVideo = async () => {
+    if (!frameStageRef.current || !currentFrame) return;
+    setAiVideoError(null);
+    try {
+      setAiVideoStatus('capturing');
+      const imageDataUrl = await toPng(frameStageRef.current, { pixelRatio: 1, cacheBust: true, skipFonts: true } as any);
+
+      setAiVideoStatus('submitting');
+      const startRes = await fetch('/api/comic/generate-frame-video/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: imageDataUrl,
+          mimeType: 'image/png',
+          prompt: currentFrame.promptDetails?.videoPrompt || '',
+          durationSeconds: 6,
+        }),
+      });
+      const startData = await startRes.json();
+      if (!startRes.ok || !startData.operationName) {
+        throw new Error(startData.error || 'AI không thể khởi tạo video lúc này.');
+      }
+
+      setAiVideoStatus('polling');
+      const operationName = startData.operationName;
+      const maxAttempts = 30; // ~ 30 * 10s = 5 phút chờ tối đa
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise((r) => setTimeout(r, 10000));
+        const statusRes = await fetch('/api/comic/generate-frame-video/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ operationName }),
+        });
+        const statusData = await statusRes.json();
+        if (!statusRes.ok) throw new Error(statusData.error || 'Lỗi kiểm tra trạng thái AI Video.');
+        if (statusData.done) {
+          if (statusData.error) throw new Error(statusData.error);
+          updateCurrentFrame({
+            aiVideoClip: {
+              videoBase64: statusData.videoBase64,
+              mimeType: statusData.mimeType || 'video/mp4',
+              prompt: currentFrame.promptDetails?.videoPrompt || '',
+              generatedAt: new Date().toISOString(),
+            },
+          });
+          setAiVideoStatus('idle');
+          return;
+        }
+      }
+      throw new Error('AI Video mất quá nhiều thời gian (>5 phút). Vui lòng thử lại sau.');
+    } catch (err: any) {
+      setAiVideoError(err.message || 'Lỗi không xác định khi tạo AI Video.');
+      setAiVideoStatus('error');
+    }
+  };
 
   // Run Consistency Check on Current Frame — calls the real AI quality-check endpoint
   // across the whole project (kiến thức + nhất quán nhân vật/bối cảnh) and applies the
@@ -198,13 +275,65 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
           </div>
 
           {/* The High-Quality Visual Canvas */}
-          <div className="w-full flex justify-center bg-slate-950/60 p-2 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
+          <div ref={frameStageRef} className="w-full flex justify-center bg-slate-950/60 p-2 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
             <VisualIllustrationRenderer
               frame={currentFrame}
               characters={characters}
               zoomLevel={zoomLevel}
               showOverlayLayer={showOverlay}
             />
+          </div>
+
+          {/* AI Video (Veo) — chỉ dùng cho khung cần chuyển động thực sự */}
+          <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!currentFrame.needsAiVideo}
+                  onChange={(e) => updateCurrentFrame({ needsAiVideo: e.target.checked })}
+                  className="w-4 h-4 accent-fuchsia-500 cursor-pointer"
+                />
+                <Clapperboard className="w-4 h-4 text-fuchsia-400" />
+                Khung này cần chuyển động thực sự (AI Video)
+              </label>
+
+              {currentFrame.needsAiVideo && (
+                <button
+                  onClick={handleGenerateAiVideo}
+                  disabled={aiVideoStatus !== 'idle' && aiVideoStatus !== 'error'}
+                  className="px-3 py-1.5 rounded-xl bg-fuchsia-600/30 hover:bg-fuchsia-600/50 border border-fuchsia-500/40 text-fuchsia-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {aiVideoStatus === 'idle' || aiVideoStatus === 'error' ? (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  ) : (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  )}
+                  {aiVideoStatus === 'capturing' && 'Đang chụp khung...'}
+                  {aiVideoStatus === 'submitting' && 'Đang gửi AI Video...'}
+                  {aiVideoStatus === 'polling' && 'AI đang dựng video (~1-3 phút)...'}
+                  {(aiVideoStatus === 'idle' || aiVideoStatus === 'error') &&
+                    (currentFrame.aiVideoClip ? 'Tạo Lại AI Video' : 'AI Sinh Video Chuyển Động')}
+                </button>
+              )}
+            </div>
+
+            {aiVideoError && (
+              <p className="text-[11px] text-rose-300 bg-rose-950/30 border border-rose-500/30 rounded-lg px-2.5 py-1.5">
+                {aiVideoError}
+              </p>
+            )}
+
+            {currentFrame.aiVideoClip && (
+              <video
+                key={currentFrame.aiVideoClip.generatedAt}
+                src={`data:${currentFrame.aiVideoClip.mimeType};base64,${currentFrame.aiVideoClip.videoBase64}`}
+                controls
+                loop
+                muted
+                className="w-full max-w-md rounded-xl border border-fuchsia-500/30 mx-auto"
+              />
+            )}
           </div>
 
           {/* Filmstrip of all frames */}

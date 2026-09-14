@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
@@ -2430,6 +2432,89 @@ Hãy đánh giá và trả về:
     } catch (error: any) {
       console.error('Comic Quality Check Error:', error);
       res.status(500).json({ error: error.message || 'Lỗi kiểm tra chất lượng' });
+    }
+  });
+
+  // 9i. AI Video (Veo): bắt đầu tạo video chuyển động thật từ ảnh khung hình
+  // — chỉ dùng cho những khung giáo viên đánh dấu "cần chuyển động thực sự",
+  // các khung còn lại vẫn dùng hiệu ứng Ken Burns (zoom/pan) khi xuất video.
+  app.post('/api/comic/generate-frame-video/start', async (req, res) => {
+    try {
+      const { imageBase64 = '', mimeType = 'image/png', prompt = '', durationSeconds = 6 } = req.body;
+      if (!imageBase64) return res.status(400).json({ error: 'Thiếu ảnh khung hình để tạo video.' });
+
+      const cleanBase64 = imageBase64.includes(';base64,') ? imageBase64.split(';base64,')[1] : imageBase64;
+      const ai = getGenAI();
+      const veoModels = ['veo-3.1-generate-preview', 'veo-3.0-generate-001'];
+
+      let operation: any = null;
+      let lastError: any = null;
+      let usedModel = '';
+
+      for (const model of veoModels) {
+        try {
+          operation = await (ai as any).models.generateVideos({
+            model,
+            prompt:
+              prompt ||
+              'Gentle cinematic camera motion bringing this educational comic illustration to life, subtle character movement, keep style and composition unchanged',
+            image: { imageBytes: cleanBase64, mimeType },
+            config: { aspectRatio: '16:9', numberOfVideos: 1, durationSeconds },
+          });
+          usedModel = model;
+          break;
+        } catch (err: any) {
+          lastError = err;
+        }
+      }
+
+      if (!operation) throw lastError || new Error('Không thể khởi tạo AI Video lúc này.');
+      res.json({ success: true, operationName: operation.name, model: usedModel });
+    } catch (error: any) {
+      console.error('Comic AI Video Start Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi khởi tạo AI Video' });
+    }
+  });
+
+  // 9j. AI Video (Veo): kiểm tra trạng thái & tải video khi hoàn tất (client gọi lặp lại ~10s/lần)
+  app.post('/api/comic/generate-frame-video/status', async (req, res) => {
+    let tmpPath = '';
+    try {
+      const { operationName } = req.body;
+      if (!operationName) return res.status(400).json({ error: 'Thiếu operationName' });
+
+      const ai = getGenAI();
+      let operation: any = { name: operationName, done: false };
+      operation = await (ai as any).operations.getVideosOperation({ operation });
+
+      if (!operation.done) {
+        return res.json({ success: true, done: false });
+      }
+
+      if (operation.error) {
+        return res.json({ success: true, done: true, error: operation.error.message || 'AI Video tạo thất bại.' });
+      }
+
+      const generated = operation.response?.generatedVideos?.[0];
+      if (!generated?.video) {
+        return res.json({ success: true, done: true, error: 'AI không trả về video hợp lệ.' });
+      }
+
+      tmpPath = path.join(os.tmpdir(), `veo-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
+      await (ai as any).files.download({ file: generated.video, downloadPath: tmpPath });
+      const videoBuffer = fs.readFileSync(tmpPath);
+
+      res.json({
+        success: true,
+        done: true,
+        videoBase64: videoBuffer.toString('base64'),
+        mimeType: 'video/mp4',
+      });
+    } catch (error: any) {
+      console.error('Comic AI Video Status Error:', error);
+      res.status(500).json({ error: error.message || 'Lỗi kiểm tra trạng thái AI Video' });
+    } finally {
+      if (tmpPath) fs.unlink(tmpPath, () => {});
     }
   });
 

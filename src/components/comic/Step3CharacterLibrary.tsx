@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CharacterProfile, LessonKnowledgeProfile, StoryKernel } from '../../types/comicLesson';
 import { DEFAULT_CHARACTERS } from '../../data/defaultComicLessons';
+import { loadCloudCharacterBank, saveCharactersToCloudBank } from './comicCloudStore';
 import {
   Users,
   Sparkles,
@@ -16,6 +17,7 @@ import {
   Save,
   RefreshCw,
   X,
+  Cloud,
 } from 'lucide-react';
 
 interface Step3CharacterLibraryProps {
@@ -25,12 +27,13 @@ interface Step3CharacterLibraryProps {
   onPrevStep: () => void;
   knowledgeProfile?: LessonKnowledgeProfile;
   storyKernel?: StoryKernel;
+  teacherUid?: string; // nếu có: Kho Nhân Vật Chung dùng Firestore (đồng bộ đám mây) thay vì chỉ localStorage
 }
 
-// Kho nhân vật dùng chung, lưu cục bộ để tái sử dụng xuyên nhiều bài học
+// Kho nhân vật dùng chung khi CHƯA đăng nhập — lưu cục bộ trình duyệt (không đồng bộ đa thiết bị)
 const CHARACTER_BANK_KEY = 'comic_character_bank_v1';
 
-const loadCharacterBank = (): CharacterProfile[] => {
+const loadLocalCharacterBank = (): CharacterProfile[] => {
   try {
     const raw = localStorage.getItem(CHARACTER_BANK_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -39,9 +42,9 @@ const loadCharacterBank = (): CharacterProfile[] => {
   }
 };
 
-const saveToCharacterBank = (chars: CharacterProfile[]) => {
+const saveToLocalCharacterBank = (chars: CharacterProfile[]) => {
   try {
-    const existing = loadCharacterBank();
+    const existing = loadLocalCharacterBank();
     const merged = [...existing];
     chars.forEach((c) => {
       const idx = merged.findIndex((m) => m.id === c.id);
@@ -51,7 +54,7 @@ const saveToCharacterBank = (chars: CharacterProfile[]) => {
     localStorage.setItem(CHARACTER_BANK_KEY, JSON.stringify(merged));
     return merged;
   } catch {
-    return loadCharacterBank();
+    return loadLocalCharacterBank();
   }
 };
 
@@ -62,6 +65,7 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
   onPrevStep,
   knowledgeProfile,
   storyKernel,
+  teacherUid,
 }) => {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>(
     characters[0]?.id || 'char-minh'
@@ -69,8 +73,39 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [isBankOpen, setIsBankOpen] = useState(false);
-  const [bankChars, setBankChars] = useState<CharacterProfile[]>(() => loadCharacterBank());
+  const [bankChars, setBankChars] = useState<CharacterProfile[]>(() => (teacherUid ? [] : loadLocalCharacterBank()));
   const [bankSavedMsg, setBankSavedMsg] = useState<string | null>(null);
+
+  // Khi có teacherUid (đã đăng nhập), nạp kho nhân vật từ Firestore thay vì localStorage
+  useEffect(() => {
+    if (!teacherUid) return;
+    loadCloudCharacterBank(teacherUid)
+      .then(setBankChars)
+      .catch(() => {
+        // im lặng — kho trống nếu lỗi mạng, không chặn màn hình
+      });
+  }, [teacherUid]);
+
+  const refreshBank = async () => {
+    if (teacherUid) {
+      try {
+        setBankChars(await loadCloudCharacterBank(teacherUid));
+      } catch {
+        // giữ nguyên danh sách cũ nếu lỗi
+      }
+    } else {
+      setBankChars(loadLocalCharacterBank());
+    }
+  };
+
+  const persistToBank = async (chars: CharacterProfile[]) => {
+    if (teacherUid) {
+      await saveCharactersToCloudBank(teacherUid, chars);
+      await refreshBank();
+    } else {
+      setBankChars(saveToLocalCharacterBank(chars));
+    }
+  };
 
   const selectedChar =
     characters.find((c) => c.id === selectedCharacterId) || characters[0];
@@ -154,10 +189,13 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
   };
 
   // Save current cast into the shared reusable character bank (persists across lessons)
-  const handleSaveToBank = () => {
-    const updatedBank = saveToCharacterBank(characters);
-    setBankChars(updatedBank);
-    setBankSavedMsg(`Đã lưu ${characters.length} nhân vật vào Kho Chung.`);
+  const handleSaveToBank = async () => {
+    try {
+      await persistToBank(characters);
+      setBankSavedMsg(`Đã lưu ${characters.length} nhân vật vào Kho Chung${teacherUid ? ' (đám mây)' : ''}.`);
+    } catch {
+      setBankSavedMsg('Lỗi lưu vào Kho Chung. Vui lòng thử lại.');
+    }
     setTimeout(() => setBankSavedMsg(null), 2500);
   };
 
@@ -215,7 +253,7 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
             </button>
             <button
               onClick={() => {
-                setBankChars(loadCharacterBank());
+                refreshBank();
                 setIsBankOpen((v) => !v);
               }}
               className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition-all cursor-pointer flex items-center gap-1.5"
@@ -237,6 +275,15 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-black text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
               <Library className="w-3.5 h-3.5 text-cyan-400" /> Kho Nhân Vật Dùng Chung ({bankChars.length})
+              {teacherUid ? (
+                <span className="normal-case font-medium text-emerald-400 flex items-center gap-1 text-[10px]">
+                  <Cloud className="w-3 h-3" /> đồng bộ đám mây
+                </span>
+              ) : (
+                <span className="normal-case font-medium text-amber-400 text-[10px]">
+                  (chỉ trên máy này — đăng nhập để đồng bộ)
+                </span>
+              )}
             </h4>
             <button onClick={() => setIsBankOpen(false)} className="text-slate-500 hover:text-white cursor-pointer">
               <X className="w-4 h-4" />
@@ -380,10 +427,13 @@ export const Step3CharacterLibrary: React.FC<Step3CharacterLibraryProps> = ({
               <div className="flex items-center gap-3">
                 <div className="flex flex-col items-end gap-0.5">
                   <button
-                    onClick={() => {
-                      saveToCharacterBank([selectedChar]);
-                      setBankChars(loadCharacterBank());
-                      setBankSavedMsg(`Đã lưu "${selectedChar.name}" vào Kho Chung.`);
+                    onClick={async () => {
+                      try {
+                        await persistToBank([selectedChar]);
+                        setBankSavedMsg(`Đã lưu "${selectedChar.name}" vào Kho Chung${teacherUid ? ' (đám mây)' : ''}.`);
+                      } catch {
+                        setBankSavedMsg('Lỗi lưu vào Kho Chung. Vui lòng thử lại.');
+                      }
                       setTimeout(() => setBankSavedMsg(null), 2500);
                     }}
                     className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-cyan-600/30 border border-slate-700 hover:border-cyan-400 text-[11px] font-bold text-slate-300 hover:text-cyan-200 transition-all flex items-center gap-1 cursor-pointer"

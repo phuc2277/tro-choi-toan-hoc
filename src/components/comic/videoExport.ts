@@ -73,6 +73,23 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines.slice(0, 3);
 }
 
+function drawCaptionOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, caption: string) {
+  if (!caption) return;
+  ctx.font = 'bold 26px "Plus Jakarta Sans", system-ui, sans-serif';
+  const paddingX = 48;
+  const maxWidth = canvas.width - paddingX * 2;
+  const lines = wrapCanvasText(ctx, caption, maxWidth);
+  const lineHeight = 34;
+  const boxHeight = lines.length * lineHeight + 28;
+  ctx.fillStyle = 'rgba(7,10,19,0.82)';
+  ctx.fillRect(0, canvas.height - boxHeight - 24, canvas.width, boxHeight + 24);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.textAlign = 'center';
+  lines.forEach((ln, li) => {
+    ctx.fillText(ln, canvas.width / 2, canvas.height - boxHeight - 4 + (li + 1) * lineHeight);
+  });
+}
+
 interface FrameAsset {
   scene: ComicScene;
   frame: ComicFrame;
@@ -215,56 +232,80 @@ export async function exportComicVideo(
     });
 
     const img = images[i];
-    const zoomFrom = 1.0;
-    const zoomTo = 1.08;
-    const panX = i % 2 === 0 ? -14 : 14;
+    const caption = asset.frame.captionText || (i === 0 ? asset.scene.narration : '');
     const durationMs = asset.durationSec * 1000;
-    const startTime = performance.now();
 
-    await new Promise<void>((resolve) => {
-      const drawTick = () => {
-        const elapsed = performance.now() - startTime;
-        const t = Math.min(1, elapsed / durationMs);
-        const scale = zoomFrom + (zoomTo - zoomFrom) * t;
-        const dx = panX * t;
+    if (asset.frame.aiVideoClip) {
+      // ---- Dùng clip AI Video (Veo) thật cho khung được giáo viên đánh dấu ----
+      await new Promise<void>((resolve, reject) => {
+        const videoEl = document.createElement('video');
+        videoEl.src = `data:${asset.frame.aiVideoClip!.mimeType};base64,${asset.frame.aiVideoClip!.videoBase64}`;
+        videoEl.muted = true;
+        videoEl.loop = true;
+        (videoEl as any).playsInline = true;
+        videoEl.onerror = () => reject(new Error(`Không thể phát AI Video cho khung ${asset.frame.frameId}.`));
+        videoEl.oncanplay = () => {
+          videoEl.play().catch(reject);
+          const startTime = performance.now();
+          const drawTick = () => {
+            const elapsed = performance.now() - startTime;
+            ctx.fillStyle = '#070A13';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        ctx.fillStyle = '#070A13';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const vw = videoEl.videoWidth || img.width;
+            const vh = videoEl.videoHeight || img.height;
+            const ratio = Math.max(canvas.width / vw, canvas.height / vh);
+            const dw = vw * ratio;
+            const dh = vh * ratio;
+            ctx.drawImage(videoEl, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+            drawCaptionOverlay(ctx, canvas, caption);
 
-        const iw = img.width * scale;
-        const ih = img.height * scale;
-        const ratio = Math.max(canvas.width / iw, canvas.height / ih);
-        const dw = iw * ratio;
-        const dh = ih * ratio;
-        const dxPos = (canvas.width - dw) / 2 + dx;
-        const dyPos = (canvas.height - dh) / 2;
-        ctx.drawImage(img, dxPos, dyPos, dw, dh);
-
-        const caption = asset.frame.captionText || (i === 0 ? asset.scene.narration : '');
-        if (caption) {
-          ctx.font = 'bold 26px "Plus Jakarta Sans", system-ui, sans-serif';
-          const paddingX = 48;
-          const maxWidth = canvas.width - paddingX * 2;
-          const lines = wrapCanvasText(ctx, caption, maxWidth);
-          const lineHeight = 34;
-          const boxHeight = lines.length * lineHeight + 28;
-          ctx.fillStyle = 'rgba(7,10,19,0.82)';
-          ctx.fillRect(0, canvas.height - boxHeight - 24, canvas.width, boxHeight + 24);
-          ctx.fillStyle = '#e2e8f0';
-          ctx.textAlign = 'center';
-          lines.forEach((ln, li) => {
-            ctx.fillText(ln, canvas.width / 2, canvas.height - boxHeight - 4 + (li + 1) * lineHeight);
-          });
-        }
-
-        if (t < 1) {
+            if (elapsed < durationMs) {
+              requestAnimationFrame(drawTick);
+            } else {
+              videoEl.pause();
+              resolve();
+            }
+          };
           requestAnimationFrame(drawTick);
-        } else {
-          resolve();
-        }
-      };
-      requestAnimationFrame(drawTick);
-    });
+        };
+      });
+    } else {
+      // ---- Ken Burns: zoom/pan nhẹ trên ảnh tĩnh đã chụp ----
+      const zoomFrom = 1.0;
+      const zoomTo = 1.08;
+      const panX = i % 2 === 0 ? -14 : 14;
+      const startTime = performance.now();
+
+      await new Promise<void>((resolve) => {
+        const drawTick = () => {
+          const elapsed = performance.now() - startTime;
+          const t = Math.min(1, elapsed / durationMs);
+          const scale = zoomFrom + (zoomTo - zoomFrom) * t;
+          const dx = panX * t;
+
+          ctx.fillStyle = '#070A13';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          const iw = img.width * scale;
+          const ih = img.height * scale;
+          const ratio = Math.max(canvas.width / iw, canvas.height / ih);
+          const dw = iw * ratio;
+          const dh = ih * ratio;
+          const dxPos = (canvas.width - dw) / 2 + dx;
+          const dyPos = (canvas.height - dh) / 2;
+          ctx.drawImage(img, dxPos, dyPos, dw, dh);
+          drawCaptionOverlay(ctx, canvas, caption);
+
+          if (t < 1) {
+            requestAnimationFrame(drawTick);
+          } else {
+            resolve();
+          }
+        };
+        requestAnimationFrame(drawTick);
+      });
+    }
 
     audioCursor = lineStart + 0.2;
   }

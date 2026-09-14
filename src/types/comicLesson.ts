@@ -68,6 +68,7 @@ export interface SpeechBubble {
 }
 
 export interface MathFormulaLayer {
+  id?: string;
   latex: string;
   label?: string;
   position: { x: number; y: number };
@@ -98,11 +99,19 @@ export interface ConsistencyCheckResult {
   passed: boolean;
 }
 
+export interface AIVideoClip {
+  videoBase64: string; // base64-encoded mp4
+  mimeType: string;
+  prompt: string;
+  generatedAt: string;
+}
+
 export interface ComicFrame {
   frameId: string; // e.g. "SC01-F01"
   sceneId: string;
   frameNumber: number;
   title?: string;
+  panelLayout?: 'wide' | 'half-left' | 'half-right' | 'full' | 'square';
   characterIds: string[];
   backgroundId: string;
   backgroundName: string;
@@ -120,6 +129,9 @@ export interface ComicFrame {
   };
   status: 'pending' | 'approved' | 'rejected' | 'regenerate';
   consistencyCheck?: ConsistencyCheckResult;
+  // AI Video (Veo): chỉ những khung cần chuyển động thực sự mới dùng, còn lại dùng Ken Burns
+  needsAiVideo?: boolean;
+  aiVideoClip?: AIVideoClip;
 }
 
 export interface GeneratedAudioClip {
@@ -132,6 +144,7 @@ export interface GeneratedAudioClip {
 export interface ComicScene {
   sceneId: string; // e.g. "SC01"
   sceneNumber: number; // 1 - 8
+  title?: string; // tiêu đề hiển thị đầy đủ của cảnh (một số dữ liệu bài học dùng thay/kèm sceneName)
   sceneType:
     | 'opening'
     | 'problem'

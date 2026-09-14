@@ -1,0 +1,83 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Lớp truy cập dữ liệu Firestore cho tính năng "AI Truyện Tranh Bài Học":
+ * - users/{uid}/comicProjects/{projectId}  → từng dự án truyện tranh (ComicLessonProject)
+ * - users/{uid}/characterBank/{characterId} → kho nhân vật dùng chung xuyên nhiều bài học
+ *
+ * Toàn bộ dữ liệu được cô lập theo uid của giáo viên đang đăng nhập — xem
+ * firestore.rules để biết quy tắc bảo mật tương ứng (mỗi giáo viên chỉ đọc/ghi
+ * được đúng dữ liệu của chính mình).
+ */
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+  query,
+  orderBy,
+  limit,
+} from 'firebase/firestore';
+import { db } from './firebaseClient';
+import { ComicLessonProject, CharacterProfile } from '../../types/comicLesson';
+
+export interface CloudProjectSummary {
+  id: string;
+  title: string;
+  subject: string;
+  grade: string;
+  updatedAt: string;
+}
+
+function requireDb() {
+  if (!db) throw new Error('Firestore chưa được cấu hình (thiếu biến môi trường VITE_FIREBASE_*).');
+  return db;
+}
+
+const projectsCol = (uid: string) => collection(requireDb(), 'users', uid, 'comicProjects');
+const bankCol = (uid: string) => collection(requireDb(), 'users', uid, 'characterBank');
+
+export async function saveProjectToCloud(uid: string, project: ComicLessonProject): Promise<void> {
+  const updated: ComicLessonProject = { ...project, updatedAt: new Date().toISOString() };
+  await setDoc(doc(projectsCol(uid), project.id), updated, { merge: false });
+}
+
+export async function loadProjectFromCloud(uid: string, projectId: string): Promise<ComicLessonProject | null> {
+  const snap = await getDoc(doc(projectsCol(uid), projectId));
+  return snap.exists() ? (snap.data() as ComicLessonProject) : null;
+}
+
+export async function listCloudProjects(uid: string): Promise<CloudProjectSummary[]> {
+  const q = query(projectsCol(uid), orderBy('updatedAt', 'desc'), limit(50));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => {
+    const data = d.data() as ComicLessonProject;
+    return {
+      id: d.id,
+      title: data.title || 'Không tên',
+      subject: data.knowledgeProfile?.subject || '',
+      grade: data.knowledgeProfile?.grade || '',
+      updatedAt: data.updatedAt || '',
+    };
+  });
+}
+
+export async function deleteCloudProject(uid: string, projectId: string): Promise<void> {
+  await deleteDoc(doc(projectsCol(uid), projectId));
+}
+
+export async function saveCharacterToCloudBank(uid: string, character: CharacterProfile): Promise<void> {
+  await setDoc(doc(bankCol(uid), character.id), character, { merge: true });
+}
+
+export async function saveCharactersToCloudBank(uid: string, characters: CharacterProfile[]): Promise<void> {
+  await Promise.all(characters.map((c) => saveCharacterToCloudBank(uid, c)));
+}
+
+export async function loadCloudCharacterBank(uid: string): Promise<CharacterProfile[]> {
+  const snap = await getDocs(bankCol(uid));
+  return snap.docs.map((d) => d.data() as CharacterProfile);
+}

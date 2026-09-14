@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ComicLessonProject, ComicScene, ComicFrame } from '../../types/comicLesson';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
 import { exportComicVideo, isVideoExportSupported, ExportProgress } from './videoExport';
+import { exportComicPptx, PptxExportProgress } from './pptxExport';
 import {
   BookOpen,
   Video,
@@ -47,6 +48,9 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportedVideoUrl, setExportedVideoUrl] = useState<string | null>(null);
+  const [isExportingPptx, setIsExportingPptx] = useState(false);
+  const [pptxProgress, setPptxProgress] = useState<PptxExportProgress | null>(null);
+  const [pptxError, setPptxError] = useState<string | null>(null);
 
   // Flatten frames
   const allFrames: Array<{ scene: ComicScene; frame: ComicFrame }> = [];
@@ -159,6 +163,30 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  // Xuất trình chiếu PowerPoint (.pptx): 1 slide / khung hình + speaker notes cho giáo viên
+  const handleExportPptx = async () => {
+    if (!stageRef.current) return;
+    setIsPlaying(false);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setIsExportingPptx(true);
+    setPptxError(null);
+    try {
+      const blob = await exportComicPptx(project, allFrames, stageRef.current, setCurrentFrameIdx, setPptxProgress);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.title.toLowerCase().replace(/\s+/g, '_')}_trinh_chieu.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setPptxError(err.message || 'Lỗi không xác định khi xuất PowerPoint.');
+    } finally {
+      setIsExportingPptx(false);
+    }
   };
 
   const audit = {
@@ -392,6 +420,16 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
               )}
 
               <button
+                onClick={handleExportPptx}
+                disabled={isExportingPptx}
+                className="px-3 py-1.5 rounded-xl bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                title="Xuất bản trình chiếu PowerPoint (mỗi khung 1 slide, kèm ghi chú lời dẫn/thoại cho giáo viên)"
+              >
+                {isExportingPptx ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                <span>{isExportingPptx ? 'Đang Xuất PPTX...' : 'Xuất Trình Chiếu (.pptx)'}</span>
+              </button>
+
+              <button
                 onClick={handleExportJSON}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
                 title="Tải về file dự án truyện tranh JSON"
@@ -436,6 +474,31 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
                 <CheckCircle2 className="w-4 h-4" /> Video đã sẵn sàng! Xem thử bên dưới hoặc tải về.
               </p>
               <video src={exportedVideoUrl} controls className="w-full rounded-xl border border-slate-800 max-h-72" />
+            </div>
+          )}
+
+          {isExportingPptx && pptxProgress && (
+            <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-200">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> {pptxProgress.message}
+                </span>
+                <span className="font-mono">
+                  {pptxProgress.frameIndex + 1}/{pptxProgress.totalFrames}
+                </span>
+              </div>
+              <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-amber-400 h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(100, ((pptxProgress.frameIndex + 1) / Math.max(1, pptxProgress.totalFrames)) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {pptxError && (
+            <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-medium">
+              {pptxError}
             </div>
           )}
         </div>
