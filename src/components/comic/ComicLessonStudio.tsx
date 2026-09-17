@@ -303,8 +303,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
   ];
 
   return (
-    <div className="min-h-screen bg-[#070A13] text-slate-100 flex flex-col">
-      {/* Top Breadcrumb & Project Bar */}
+<div className="min-h-screen bg-[#070A13] text-slate-100 flex flex-col relative z-10">      {/* Top Breadcrumb & Project Bar */}
       <div className="border-b border-cyan-500/20 bg-slate-950/80 backdrop-blur-md px-4 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30 shadow-lg">
         <div className="flex items-center gap-3">
           {onBackToMain && (
