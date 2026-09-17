@@ -684,9 +684,8 @@ export const LessonPage: React.FC = () => {
   }, [currentLesson]);
 
   return (
-    <div className="min-h-screen bg-[#070913] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-slate-950 font-sans antialiased relative overflow-hidden">
-      {/* 3D Cosmic Geometric Floating Elements */}
-      <ThreeDBackgroundElements />
+<div className="min-h-screen bg-[#070913] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-slate-950 font-sans antialiased relative">
+    <ThreeDBackgroundElements />
 
       {/* Symmetric Side Decor: Tiên Học Lễ (Left) & Hậu Học Văn (Right) with doves and roses */}
       <EduverseSideDecor />
