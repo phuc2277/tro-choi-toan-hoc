@@ -18,15 +18,17 @@ interface Step1KnowledgeProfileProps {
   knowledgeProfile: LessonKnowledgeProfile;
   onUpdateKnowledgeProfile: (updated: LessonKnowledgeProfile) => void;
   onNextStep: () => void;
+  initialSourceText?: string;
 }
 
 export const Step1KnowledgeProfile: React.FC<Step1KnowledgeProfileProps> = ({
   knowledgeProfile,
   onUpdateKnowledgeProfile,
   onNextStep,
+  initialSourceText,
 }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [directInputText, setDirectInputText] = useState('');
+  const [directInputText, setDirectInputText] = useState(initialSourceText || '');
   const [selectedSample, setSelectedSample] = useState<string>('math8-thales');
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'rawSource'>('profile');
   const [attachedFile, setAttachedFile] = useState<{ name: string; base64: string; mimeType: string } | null>(null);

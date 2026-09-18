@@ -478,7 +478,25 @@ export const LessonPage: React.FC = () => {
       .map((l) => l.chapter);
     return Array.from(new Set(chapters));
   }, [lessons, currentSubject.id, currentGrade.level]);
-
+// Chuyển nội dung SGK/giáo án đã có sẵn của bài học hiện tại thành text nguồn cho AI Truyện Tranh
+function extractLessonSourceText(lesson?: Lesson): string {
+  if (!lesson) return '';
+  const parts: string[] = [];
+  for (const pres of lesson.presentations || []) {
+    if (pres.sourceType === 'ai-structured' && pres.lecture) {
+      const lec = pres.lecture;
+      if (lec.objectives?.length) parts.push(`Mục tiêu: ${lec.objectives.join('; ')}`);
+      for (const sec of lec.sections || []) {
+        parts.push(`${sec.title}: ${sec.content}`);
+        if (sec.formula) parts.push(`Công thức: ${sec.formula}`);
+      }
+      if (lec.summary?.length) parts.push(`Tổng kết: ${lec.summary.join('; ')}`);
+    } else if (pres.sourceType === 'upload-file' && pres.extractedText) {
+      parts.push(pres.extractedText);
+    }
+  }
+  return parts.join('\n\n');
+}
   // Computed Current Lesson Object (Strictly isolated to current subject & grade)
   const currentLesson: Lesson | undefined = useMemo(() => {
     if (selectedLessonId) {
@@ -817,14 +835,26 @@ export const LessonPage: React.FC = () => {
         /* ======================================================== */
         /* AI TRUYỆN TRANH BÀI HỌC (8-STEP GDPT 2018 STUDIO)      */
         /* ======================================================== */
-        <div className="flex-1 flex flex-col">
-          <ComicLessonStudio
-            onBackToMain={() => {
-              setViewMode('detail');
-              setActiveSection('documents');
-            }}
-          />
-        </div>
+       <div className="flex-1 flex flex-col">
+  <ComicLessonStudio
+    key={currentLesson?.id || 'no-lesson'}
+    onBackToMain={() => {
+      setViewMode('detail');
+      setActiveSection('documents');
+    }}
+    initialLessonContext={
+      currentLesson
+        ? {
+            subject: currentLesson.subject,
+            grade: `Lớp ${currentLesson.grade}`,
+            chapter: currentLesson.chapter,
+            lessonTitle: currentLesson.title,
+            sourceText: extractLessonSourceText(currentLesson),
+          }
+        : undefined
+    }
+  />
+</div>
       ) : viewMode === 'home' ? (
         /* ======================================================== */
         /* EDUVERSE HOME DASHBOARD (HERO & 4 FEATURE PORTALS)      */

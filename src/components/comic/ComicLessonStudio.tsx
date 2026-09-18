@@ -55,13 +55,47 @@ import {
 
 interface ComicLessonStudioProps {
   onBackToMain?: () => void;
+  initialLessonContext?: {
+    subject: string;
+    grade: string;
+    chapter: string;
+    lessonTitle: string;
+    sourceText?: string;
+  };
 }
 
-export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMain }) => {
+export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMain, initialLessonContext }) => {
   const teacherAuth = useTeacherAuth();
 
   // Current active project
   const [project, setProject] = useState<ComicLessonProject>(() => {
+    // Nếu được mở từ 1 bài học cụ thể (nút "AI Truyện Tranh" trên trang chủ) → ưu tiên dùng đúng bài đó
+    if (initialLessonContext) {
+      return {
+        ...DEFAULT_COMIC_PROJECT,
+        id: `proj-lesson-${Date.now()}`,
+        title: initialLessonContext.lessonTitle,
+        knowledgeProfile: {
+          ...DEFAULT_COMIC_PROJECT.knowledgeProfile,
+          subject: initialLessonContext.subject,
+          grade: initialLessonContext.grade,
+          chapter: initialLessonContext.chapter,
+          lessonTitle: initialLessonContext.lessonTitle,
+          objectives: [],
+          coreKnowledge: [],
+          concepts: [],
+          formulas: [],
+          examples: [],
+          problemSolvingProcess: [],
+          importantDiagrams: [],
+          keyTerms: [],
+          commonMisconceptions: [],
+          teacherNotes: '',
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
     try {
       const cached = localStorage.getItem('cached_comic_lesson_project');
       if (cached) {
@@ -591,15 +625,14 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           />
         )}
 
-        {currentStep === 2 && (
-          <Step2StoryKernel
-            storyKernel={project.storyKernel}
-            knowledgeProfile={project.knowledgeProfile}
-            onUpdateStoryKernel={handleUpdateStoryKernel}
-            onNextStep={() => setCurrentStep(3)}
-            onPrevStep={() => setCurrentStep(1)}
-          />
-        )}
+        {currentStep === 1 && (
+  <Step1KnowledgeProfile
+    knowledgeProfile={project.knowledgeProfile}
+    onUpdateKnowledgeProfile={handleUpdateKnowledgeProfile}
+    onNextStep={() => setCurrentStep(2)}
+    initialSourceText={initialLessonContext?.sourceText}
+  />
+)}
 
         {currentStep === 3 && (
           <Step3CharacterLibrary
