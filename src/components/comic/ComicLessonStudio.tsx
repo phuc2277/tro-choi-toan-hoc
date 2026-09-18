@@ -70,13 +70,18 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
   // Current active project
   const [project, setProject] = useState<ComicLessonProject>(() => {
     // Nếu được mở từ 1 bài học cụ thể (nút "AI Truyện Tranh" trên trang chủ) → ưu tiên dùng đúng bài đó
-    if (initialLessonContext) {
+       if (initialLessonContext) {
       return {
-        ...DEFAULT_COMIC_PROJECT,
         id: `proj-lesson-${Date.now()}`,
         title: initialLessonContext.lessonTitle,
+        description: '',
+        subject: initialLessonContext.subject,
+        grade: initialLessonContext.grade,
+        style: 'modern-comic',
+        artStyle: 'modern-comic',
+        humorLevel: 'natural',
+        currentStep: 1,
         knowledgeProfile: {
-          ...DEFAULT_COMIC_PROJECT.knowledgeProfile,
           subject: initialLessonContext.subject,
           grade: initialLessonContext.grade,
           chapter: initialLessonContext.chapter,
@@ -92,6 +97,18 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           commonMisconceptions: [],
           teacherNotes: '',
         },
+        storyKernel: {
+          problemStatement: '',
+          protagonistNames: [],
+          goal: '',
+          obstacles: '',
+          knowledgeToDiscover: '',
+          climax: '',
+          resolution: '',
+          knowledgeConclusion: '',
+        },
+        characters: [],
+        scenes: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
