@@ -4,10 +4,9 @@ let cachedApp: any = null;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!cachedApp) {
-    // Dùng bản đã build sẵn (dist/server.cjs) thay vì import server.ts trực tiếp,
-    // để tránh lỗi Vercel không dò được hết phụ thuộc của file server.ts phức tạp.
-    const mod = require('../dist/server.cjs');
-    const createApp = mod.createApp || mod.default?.createApp;
+    // Dùng import() động thay vì require(), vì project chạy ở chế độ ES Module
+    // @ts-ignore - file này được tạo lúc build, không tồn tại lúc edit code
+    const mod: any = await import('../dist/server.cjs');    const createApp = mod.createApp || mod.default?.createApp || mod.default;
     cachedApp = await createApp();
   }
   return cachedApp(req, res);
