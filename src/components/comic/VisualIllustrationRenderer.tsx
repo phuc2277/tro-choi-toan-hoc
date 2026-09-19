@@ -245,7 +245,7 @@ export const VisualIllustrationRenderer: React.FC<VisualIllustrationRendererProp
           </svg>
         );
 
-      case 'classroom_board':
+         case 'classroom_board':
       default:
         return (
           <svg
@@ -268,31 +268,14 @@ export const VisualIllustrationRenderer: React.FC<VisualIllustrationRendererProp
             {/* Classroom Wall */}
             <rect width="1000" height="600" fill="url(#wallGrad)" />
 
-            {/* Large School Chalkboard */}
+            {/* Large School Chalkboard (để trống, trung tính cho mọi bài học) */}
             <rect x="60" y="50" width="880" height="420" rx="12" fill="#78350f" />
             <rect x="75" y="65" width="850" height="390" rx="8" fill="url(#boardGrad)" />
 
-            {/* Chalkboard Grid and Geometry Lines */}
-            {/* Right-angled triangle ABC */}
-            <polygon points="180,390 180,180 340,390" fill="none" stroke="#6ee7b7" strokeWidth="4" />
-            {/* Sun ray hypotenuse parallel line A'B' */}
-            <polygon points="380,390 380,100 680,390" fill="none" stroke="#facc15" strokeWidth="5" />
-            {/* Parallel ray angle markings */}
-            <path d="M 340,360 A 30 30 0 0 0 315,390" fill="none" stroke="#38bdf8" strokeWidth="3" />
-            <path d="M 680,360 A 30 30 0 0 0 655,390" fill="none" stroke="#38bdf8" strokeWidth="3" />
-            <text x="325" y="380" fill="#38bdf8" fontSize="16" fontWeight="bold">α</text>
-            <text x="665" y="380" fill="#38bdf8" fontSize="16" fontWeight="bold">α</text>
-
-            {/* Labels on Board */}
-            <text x="160" y="290" fill="#6ee7b7" fontSize="20" fontWeight="bold">cọc (h₁)</text>
-            <text x="240" y="420" fill="#6ee7b7" fontSize="20" fontWeight="bold">bóng cọc (b₁)</text>
-            <text x="350" y="240" fill="#facc15" fontSize="24" fontWeight="bold">CÂY (H)</text>
-            <text x="500" y="420" fill="#facc15" fontSize="24" fontWeight="bold">bóng cây (B)</text>
-
-            {/* Banner Title on Board */}
-            <rect x="300" y="80" width="400" height="42" rx="8" fill="#047857" opacity="0.6" />
+            {/* Banner Title trung tính, lấy đúng tên cảnh thay vì cố định "Thales" */}
+            <rect x="250" y="80" width="500" height="42" rx="8" fill="#047857" opacity="0.6" />
             <text x="500" y="108" fill="#a7f3d0" fontSize="20" fontWeight="bold" textAnchor="middle" letterSpacing="1.5">
-              ĐỊNH LÝ THALES & ĐO ĐẠC THỰC ĐỊA
+              {(frame.title || 'BÀI HỌC').toUpperCase()}
             </text>
 
             {/* Wooden classroom table in foreground */}

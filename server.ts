@@ -1914,13 +1914,18 @@ Yêu cầu xây dựng:
 
       for (const model of ttsModels) {
         try {
-          const response = await ai.models.generateContent({
+                    const response = await ai.models.generateContent({
             model,
-            contents: [{ parts: [{ text }] }],
+            contents: [{
+              parts: [{
+                text: `Đọc đoạn văn tiếng Việt sau bằng giọng miền Bắc chuẩn, tự nhiên, phát âm rõ ràng, đúng dấu thanh điệu: ${text}`,
+              }],
+            }],
             config: {
               responseModalities: ['AUDIO'],
               speechConfig: {
                 voiceConfig: { prebuiltVoiceConfig: { voiceName } },
+                languageCode: 'vi-VN',
               },
             },
           } as any);
