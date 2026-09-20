@@ -61,6 +61,8 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   const [aiVideoError, setAiVideoError] = useState<string | null>(null);
   const [bulkVideoRunning, setBulkVideoRunning] = useState(false);
   const [bulkVideoProgress, setBulkVideoProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+   const [bulkImageRunning, setBulkImageRunning] = useState(false);
+  const [bulkImageProgress, setBulkImageProgress] = useState<{ current: number; total: number } | null>(null);
   const currentPair = allFrames[selectedFrameIndex] || allFrames[0];
   const currentFrame = currentPair?.frame;
   const currentScene = currentPair?.scene;
@@ -134,6 +136,41 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
       setAiVideoError(err.message || 'Lỗi không xác định khi tạo AI Video.');
       setAiVideoStatus('error');
     }
+  };
+    const handleGenerateAllFrameImages = async () => {
+    setBulkImageRunning(true);
+    let workingScenes = scenes;
+    for (let i = 0; i < allFrames.length; i++) {
+      const { scene, frame } = allFrames[i];
+      setBulkImageProgress({ current: i + 1, total: allFrames.length });
+      try {
+        const res = await fetch('/api/comic/generate-frame-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: frame.promptDetails?.fullPrompt || frame.visualAction || frame.title || '' }),
+        });
+        const data = await res.json();
+        if (res.ok && data.imageBase64) {
+          workingScenes = workingScenes.map((s) =>
+            s.sceneId !== scene.sceneId
+              ? s
+              : {
+                  ...s,
+                  frames: s.frames.map((f) =>
+                    f.frameId !== frame.frameId
+                      ? f
+                      : { ...f, generatedImage: { imageBase64: data.imageBase64, mimeType: data.mimeType, generatedAt: new Date().toISOString() } }
+                  ),
+                }
+          );
+          onUpdateScenes(workingScenes);
+        }
+      } catch (err) {
+        console.error(`Lỗi tạo ảnh 3D cho ${frame.frameId}:`, err);
+      }
+    }
+    setBulkImageProgress(null);
+    setBulkImageRunning(false);
   };
   // Tạo AI Video (Veo) cho TOÀN BỘ khung hình trong truyện, lần lượt từng khung một,
   // để đúng nội dung từng cảnh (không dùng chung 1 prompt cho tất cả).
@@ -374,6 +411,21 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
               showOverlayLayer={showOverlay}
             />
           </div>
+                    <div className="mb-4 p-4 rounded-2xl border border-cyan-500/30 bg-cyan-950/20">
+            <div className="flex items-center gap-2 mb-2">
+              <Palette className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-bold text-cyan-200">Bước 1: Tạo Ảnh Minh Họa 3D AI (thay cho tranh vẽ tay)</span>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">Làm bước này trước, sau đó mới bấm "Tạo Video AI" bên dưới để có video 3D đúng nội dung.</p>
+            <button
+              onClick={handleGenerateAllFrameImages}
+              disabled={bulkImageRunning}
+              className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2"
+            >
+              {bulkImageRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {bulkImageRunning ? `Đang tạo ảnh 3D... (${bulkImageProgress?.current}/${bulkImageProgress?.total})` : 'Tạo Ảnh 3D AI Cho Tất Cả Khung Hình'}
+            </button>
+          </div>
           {/* Tạo AI Video (Veo) cho TOÀN BỘ truyện, từng khung một */}
           <div className="mb-4 p-4 rounded-2xl border border-purple-500/30 bg-purple-950/20">
             <div className="flex items-center gap-2 mb-2">
@@ -391,6 +443,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
               {bulkVideoRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {bulkVideoRunning ? 'Đang tạo video AI...' : 'Bắt Đầu Tạo Video AI Cho Cả Truyện'}
             </button>
+            
             {bulkVideoProgress && (
               <div className="mt-3">
                 <div className="flex justify-between text-xs text-purple-300 mb-1">

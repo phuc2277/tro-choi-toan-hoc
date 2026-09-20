@@ -30,6 +30,17 @@ export const VisualIllustrationRenderer: React.FC<VisualIllustrationRendererProp
 
   // Render the artistic SVG backdrop based on illustrationSceneType
   const renderArtisticBackdrop = () => {
+      // Nếu đã có ảnh AI 3D được tạo riêng cho khung này, ưu tiên hiển thị ảnh đó
+  // thay cho tranh SVG vẽ tay cố định.
+  if (frame.generatedImage) {
+    return (
+      <img
+        src={`data:${frame.generatedImage.mimeType};base64,${frame.generatedImage.imageBase64}`}
+        alt={frame.title || 'Minh họa AI'}
+        className="w-full h-full absolute inset-0 object-cover"
+      />
+    );
+  }
     switch (frame.illustrationSceneType) {
       case 'schoolyard_tree':
       case 'schoolyard_measure':

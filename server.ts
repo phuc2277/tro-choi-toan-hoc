@@ -2439,7 +2439,38 @@ Hãy đánh giá và trả về:
       res.status(500).json({ error: error.message || 'Lỗi kiểm tra chất lượng' });
     }
   });
+  app.post('/api/comic/generate-frame-image', async (req, res) => {
+        try {
+      const ai = getGenAI();
+      const { prompt = '' } = req.body;
+      if (!prompt.trim()) return res.status(400).json({ error: 'Thiếu mô tả (prompt) để tạo ảnh.' });
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not configured' });
+      }
 
+      const fullPrompt = `Vẽ minh họa phong cách hoạt hình 3D (như phim Pixar/Disney), ánh sáng mềm mại, chất liệu render 3D chân thực, màu sắc tươi sáng, phù hợp cho học sinh THCS Việt Nam. ${prompt}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image',
+        contents: fullPrompt,
+        config: { responseModalities: ['TEXT', 'IMAGE'] },
+      } as any);
+
+      const parts = response.candidates?.[0]?.content?.parts || [];
+      const imagePart = parts.find((p: any) => p.inlineData);
+      if (!imagePart) {
+        return res.status(500).json({ error: 'AI không trả về ảnh. Vui lòng thử lại.' });
+      }
+
+      res.json({
+                imageBase64: imagePart.inlineData?.data,
+        mimeType: imagePart.inlineData?.mimeType || 'image/png',
+      });
+    } catch (err: any) {
+      console.error('generate-frame-image error:', err);
+      res.status(500).json({ error: err.message || 'Lỗi không xác định khi tạo ảnh AI.' });
+    }
+  });
   // 9i. AI Video (Veo): bắt đầu tạo video chuyển động thật từ ảnh khung hình
   // — chỉ dùng cho những khung giáo viên đánh dấu "cần chuyển động thực sự",
   // các khung còn lại vẫn dùng hiệu ứng Ken Burns (zoom/pan) khi xuất video.

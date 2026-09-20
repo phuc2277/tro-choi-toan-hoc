@@ -132,6 +132,11 @@ export interface ComicFrame {
   // AI Video (Veo): chỉ những khung cần chuyển động thực sự mới dùng, còn lại dùng Ken Burns
   needsAiVideo?: boolean;
   aiVideoClip?: AIVideoClip;
+    generatedImage?: {
+    imageBase64: string;
+    mimeType: string;
+    generatedAt: string;
+  };
 }
 
 export interface GeneratedAudioClip {
