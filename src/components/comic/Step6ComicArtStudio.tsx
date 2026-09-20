@@ -59,7 +59,8 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   const frameStageRef = useRef<HTMLDivElement | null>(null);
   const [aiVideoStatus, setAiVideoStatus] = useState<'idle' | 'capturing' | 'submitting' | 'polling' | 'error'>('idle');
   const [aiVideoError, setAiVideoError] = useState<string | null>(null);
-
+  const [bulkVideoRunning, setBulkVideoRunning] = useState(false);
+  const [bulkVideoProgress, setBulkVideoProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const currentPair = allFrames[selectedFrameIndex] || allFrames[0];
   const currentFrame = currentPair?.frame;
   const currentScene = currentPair?.scene;
@@ -134,7 +135,97 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
       setAiVideoStatus('error');
     }
   };
+  // Tạo AI Video (Veo) cho TOÀN BỘ khung hình trong truyện, lần lượt từng khung một,
+  // để đúng nội dung từng cảnh (không dùng chung 1 prompt cho tất cả).
+  const handleGenerateAllAiVideos = async () => {
+    setBulkVideoRunning(true);
+    setAiVideoError(null);
+    let workingScenes = scenes;
 
+    for (let i = 0; i < allFrames.length; i++) {
+      const { scene, frame } = allFrames[i];
+      setSelectedFrameIndex(i);
+      setBulkVideoProgress({ current: i + 1, total: allFrames.length, message: `Đang chuẩn bị khung ${frame.frameId}...` });
+
+      // Chờ React vẽ xong khung mới (đổi selectedFrameIndex) trước khi chụp ảnh
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 250));
+
+      if (!frameStageRef.current) continue;
+
+      try {
+        setBulkVideoProgress({ current: i + 1, total: allFrames.length, message: `Đang chụp khung ${frame.frameId}...` });
+        const imageDataUrl = await toPng(frameStageRef.current, { pixelRatio: 1, cacheBust: true, skipFonts: true } as any);
+
+        setBulkVideoProgress({ current: i + 1, total: allFrames.length, message: `AI đang dựng video cho ${frame.frameId}...` });
+        const startRes = await fetch('/api/comic/generate-frame-video/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: imageDataUrl,
+            mimeType: 'image/png',
+            prompt: frame.promptDetails?.videoPrompt || '',
+            durationSeconds: 6,
+          }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok || !startData.operationName) {
+          throw new Error(startData.error || 'AI không thể khởi tạo video lúc này.');
+        }
+
+        const operationName = startData.operationName;
+        const maxAttempts = 30; // ~5 phút chờ tối đa cho mỗi khung
+        let clip: any = null;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((r) => setTimeout(r, 10000));
+          setBulkVideoProgress({
+            current: i + 1,
+            total: allFrames.length,
+            message: `Đang chờ AI dựng video ${frame.frameId}... (${attempt + 1}0s)`,
+          });
+          const statusRes = await fetch('/api/comic/generate-frame-video/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ operationName }),
+          });
+          const statusData = await statusRes.json();
+          if (!statusRes.ok) throw new Error(statusData.error || 'Lỗi kiểm tra trạng thái AI Video.');
+          if (statusData.done) {
+            if (statusData.error) throw new Error(statusData.error);
+            clip = {
+              videoBase64: statusData.videoBase64,
+              mimeType: statusData.mimeType || 'video/mp4',
+              prompt: frame.promptDetails?.videoPrompt || '',
+              generatedAt: new Date().toISOString(),
+            };
+            break;
+          }
+        }
+
+        if (clip) {
+          // Cập nhật đúng khung này trong bản scenes đang làm việc (tránh bị stale state)
+          workingScenes = workingScenes.map((s) =>
+            s.sceneId !== scene.sceneId
+              ? s
+              : {
+                  ...s,
+                  frames: s.frames.map((f) =>
+                    f.frameId !== frame.frameId ? f : { ...f, needsAiVideo: true, aiVideoClip: clip }
+                  ),
+                }
+          );
+          onUpdateScenes(workingScenes);
+        }
+      } catch (err: any) {
+        // Lỗi 1 khung không chặn các khung còn lại — ghi log rồi tiếp tục
+        console.error(`Lỗi tạo AI Video cho ${frame.frameId}:`, err.message);
+        setAiVideoError(`Khung ${frame.frameId} lỗi: ${err.message || 'không xác định'} (đã bỏ qua, tiếp tục khung sau)`);
+      }
+    }
+
+    setBulkVideoProgress(null);
+    setBulkVideoRunning(false);
+  };
   // Run Consistency Check on Current Frame — calls the real AI quality-check endpoint
   // across the whole project (kiến thức + nhất quán nhân vật/bối cảnh) and applies the
   // result for this frame.
@@ -283,7 +374,39 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
               showOverlayLayer={showOverlay}
             />
           </div>
-
+          {/* Tạo AI Video (Veo) cho TOÀN BỘ truyện, từng khung một */}
+          <div className="mb-4 p-4 rounded-2xl border border-purple-500/30 bg-purple-950/20">
+            <div className="flex items-center gap-2 mb-2">
+              <Clapperboard className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-bold text-purple-200">Tạo Video AI (Veo) cho TOÀN BỘ {allFrames.length} khung hình</span>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              Mỗi khung mất 1-5 phút, tổng thời gian có thể lên tới hàng chục phút. Không tắt trình duyệt trong lúc chạy.
+            </p>
+            <button
+              onClick={handleGenerateAllAiVideos}
+              disabled={bulkVideoRunning}
+              className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+            >
+              {bulkVideoRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {bulkVideoRunning ? 'Đang tạo video AI...' : 'Bắt Đầu Tạo Video AI Cho Cả Truyện'}
+            </button>
+            {bulkVideoProgress && (
+              <div className="mt-3">
+                <div className="flex justify-between text-xs text-purple-300 mb-1">
+                  <span>{bulkVideoProgress.message}</span>
+                  <span>{bulkVideoProgress.current}/{bulkVideoProgress.total}</span>
+                </div>
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-purple-500 transition-all"
+                    style={{ width: `${(bulkVideoProgress.current / bulkVideoProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {aiVideoError && <p className="text-xs text-rose-400 mt-2">{aiVideoError}</p>}
+          </div>
           {/* AI Video (Veo) — chỉ dùng cho khung cần chuyển động thực sự */}
           <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-2">
