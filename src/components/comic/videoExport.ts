@@ -243,8 +243,11 @@ export async function exportComicVideo(
         videoEl.muted = true;
         videoEl.loop = true;
         (videoEl as any).playsInline = true;
-        videoEl.onerror = () => reject(new Error(`Không thể phát AI Video cho khung ${asset.frame.frameId}.`));
+                videoEl.onerror = () => reject(new Error(`Không thể phát AI Video cho khung ${asset.frame.frameId}.`));
+        let started = false;                 // <-- THÊM dòng này (ngay trước oncanplay)
         videoEl.oncanplay = () => {
+          if (started) return;               // <-- THÊM 2 dòng này (ngay sau dòng mở hàm)
+          started = true;
           videoEl.play().catch(reject);
           const startTime = performance.now();
           const drawTick = () => {

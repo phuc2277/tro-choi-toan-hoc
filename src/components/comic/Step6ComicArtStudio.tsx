@@ -254,10 +254,17 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
           onUpdateScenes(workingScenes);
         }
       } catch (err: any) {
-        // Lỗi 1 khung không chặn các khung còn lại — ghi log rồi tiếp tục
-        console.error(`Lỗi tạo AI Video cho ${frame.frameId}:`, err.message);
-        setAiVideoError(`Khung ${frame.frameId} lỗi: ${err.message || 'không xác định'} (đã bỏ qua, tiếp tục khung sau)`);
-      }
+  console.error(`Lỗi tạo AI Video cho ${frame.frameId}:`, err.message);
+
+  // Lỗi cấu hình (sai model, sai key, hết quota) sẽ lặp lại ở mọi khung -> dừng cả vòng lặp
+  if (/NOT_FOUND|not found|API key|quota|403|401/i.test(err.message || '')) {
+    setAiVideoError(`Dừng tạo video: ${err.message}`);
+    break;
+  }
+
+  // Lỗi riêng của 1 khung -> bỏ qua, tiếp tục khung sau
+  setAiVideoError(`Khung ${frame.frameId} lỗi: ${err.message || 'không xác định'} (đã bỏ qua, tiếp tục khung sau)`);
+}
     }
 
     setBulkVideoProgress(null);
@@ -455,6 +462,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
                     className="h-full bg-purple-500 transition-all"
                     style={{ width: `${(bulkVideoProgress.current / bulkVideoProgress.total) * 100}%` }}
                   />
+                  
                 </div>
               </div>
             )}

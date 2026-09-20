@@ -2480,9 +2480,9 @@ Hãy đánh giá và trả về:
       if (!imageBase64) return res.status(400).json({ error: 'Thiếu ảnh khung hình để tạo video.' });
 
       const cleanBase64 = imageBase64.includes(';base64,') ? imageBase64.split(';base64,')[1] : imageBase64;
-      const ai = getGenAI();
-      const veoModels = ['veo-3.1-generate-preview', 'veo-3.0-generate-001'];
-
+            const ai = getGenAI();
+      const VEO_MODEL = (process.env.VEO_MODEL || 'veo-3.1-fast-generate-preview').trim();
+      const veoModels = [...new Set([VEO_MODEL, 'veo-3.1-fast-generate-preview', 'veo-3.1-generate-preview'])];
       let operation: any = null;
       let lastError: any = null;
       let usedModel = '';
@@ -2501,9 +2501,11 @@ Hãy đánh giá và trả về:
           break;
         } catch (err: any) {
           lastError = err;
+          console.warn(`Veo model ${model} lỗi:`, err?.message);
+          // Chỉ thử model kế tiếp khi model này không tồn tại; lỗi key/quota/prompt thì đổi model cũng vô ích
+          if (!/NOT_FOUND|not found|404/i.test(String(err?.message || ''))) break;
         }
       }
-
       if (!operation) throw lastError || new Error('Không thể khởi tạo AI Video lúc này.');
       res.json({ success: true, operationName: operation.name, model: usedModel });
     } catch (error: any) {
