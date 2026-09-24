@@ -28,6 +28,11 @@ export interface CharacterProfile {
   educationalRole: string; // e.g. 'Tò mò, hay đặt câu hỏi', 'Cẩn thận, thích suy luận'
   avatarUrl?: string;
   gender?: 'male' | 'female';
+  referenceImage?: {
+    imageBase64: string;
+    mimeType: string;
+    generatedAt: string;
+  };
 }
 
 export interface LessonKnowledgeProfile {

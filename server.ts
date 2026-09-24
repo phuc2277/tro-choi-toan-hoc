@@ -2439,38 +2439,94 @@ Hãy đánh giá và trả về:
       res.status(500).json({ error: error.message || 'Lỗi kiểm tra chất lượng' });
     }
   });
-  app.post('/api/comic/generate-frame-image', async (req, res) => {
-        try {
-      const ai = getGenAI();
-      const { prompt = '' } = req.body;
-      if (!prompt.trim()) return res.status(400).json({ error: 'Thiếu mô tả (prompt) để tạo ảnh.' });
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not configured' });
-      }
-
-      const fullPrompt = `Vẽ minh họa phong cách hoạt hình 3D (như phim Pixar/Disney), ánh sáng mềm mại, chất liệu render 3D chân thực, màu sắc tươi sáng, phù hợp cho học sinh THCS Việt Nam. ${prompt}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-image',
-        contents: fullPrompt,
-        config: { responseModalities: ['TEXT', 'IMAGE'] },
-      } as any);
-
-      const parts = response.candidates?.[0]?.content?.parts || [];
-      const imagePart = parts.find((p: any) => p.inlineData);
-      if (!imagePart) {
-        return res.status(500).json({ error: 'AI không trả về ảnh. Vui lòng thử lại.' });
-      }
-
-      res.json({
-                imageBase64: imagePart.inlineData?.data,
-        mimeType: imagePart.inlineData?.mimeType || 'image/png',
-      });
-    } catch (err: any) {
-      console.error('generate-frame-image error:', err);
-      res.status(500).json({ error: err.message || 'Lỗi không xác định khi tạo ảnh AI.' });
+  // 9h-bis. Tạo ảnh chân dung THAM CHIẾU cho 1 nhân vật — dùng làm ảnh gốc để giữ
+// nhất quán ngoại hình xuyên suốt mọi khung hình có nhân vật đó.
+app.post('/api/comic/generate-character-reference', async (req, res) => {
+  try {
+    const ai = getGenAI();
+    const { character } = req.body as {
+      character?: { name: string; age?: number; gender?: string; appearance: string; outfit: string };
+    };
+    if (!character?.appearance || !character?.outfit) {
+      return res.status(400).json({ error: 'Thiếu mô tả ngoại hình/trang phục nhân vật.' });
     }
-  });
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not configured' });
+    }
+
+    const prompt = `Vẽ chân dung nhân vật phong cách hoạt hình 3D (như phim Pixar/Disney), nền studio xám nhạt đơn giản, ánh sáng mềm mại đều, tư thế đứng thẳng nhìn thẳng camera, thấy rõ toàn thân từ đầu đến chân, thể hiện rõ ràng trang phục và đặc điểm ngoại hình. Đây là ẢNH THAM CHIẾU NHÂN VẬT dùng để giữ nhất quán xuyên suốt truyện tranh, không phải một cảnh truyện cụ thể — không thêm bối cảnh, đạo cụ hay nhân vật khác.
+Nhân vật: ${character.name}, ${character.age ? character.age + ' tuổi, ' : ''}${character.gender === 'female' ? 'nữ' : 'nam'}.
+Ngoại hình: ${character.appearance}.
+Trang phục: ${character.outfit}.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-image',
+      contents: prompt,
+      config: { responseModalities: ['TEXT', 'IMAGE'] },
+    } as any);
+
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find((p: any) => p.inlineData);
+    if (!imagePart) {
+      return res.status(500).json({ error: 'AI không trả về ảnh tham chiếu. Vui lòng thử lại.' });
+    }
+
+    res.json({
+      imageBase64: imagePart.inlineData?.data,
+      mimeType: imagePart.inlineData?.mimeType || 'image/png',
+    });
+  } catch (err: any) {
+    console.error('generate-character-reference error:', err);
+    res.status(500).json({ error: err.message || 'Lỗi không xác định khi tạo ảnh tham chiếu nhân vật.' });
+  }
+});
+ app.post('/api/comic/generate-frame-image', async (req, res) => {
+  try {
+    const ai = getGenAI();
+    const { prompt = '', referenceImages = [] } = req.body as {
+      prompt?: string;
+      referenceImages?: Array<{ imageBase64: string; mimeType: string; characterName?: string }>;
+    };
+    if (!prompt.trim()) return res.status(400).json({ error: 'Thiếu mô tả (prompt) để tạo ảnh.' });
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not configured' });
+    }
+
+    const consistencyNote = referenceImages.length
+      ? ` Dùng CHÍNH XÁC các ảnh tham chiếu nhân vật đính kèm để giữ đúng khuôn mặt, trang phục, tỉ lệ cơ thể của từng nhân vật — không tự sáng tạo lại ngoại hình khác đi.`
+      : '';
+    const fullPrompt = `Vẽ minh họa phong cách hoạt hình 3D (như phim Pixar/Disney), ánh sáng mềm mại, chất liệu render 3D chân thực, màu sắc tươi sáng, phù hợp cho học sinh THCS Việt Nam.${consistencyNote} ${prompt}`;
+
+    // Ghép prompt text + các ảnh tham chiếu nhân vật (nếu có) thành nhiều "parts"
+    // để Gemini nhìn thấy cả mô tả lẫn ảnh gốc khi vẽ khung mới.
+    const contentParts: any[] = [{ text: fullPrompt }];
+    referenceImages.slice(0, 6).forEach((ref) => {
+      if (ref?.imageBase64) {
+        contentParts.push({ inlineData: { data: ref.imageBase64, mimeType: ref.mimeType || 'image/png' } });
+      }
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-image',
+      contents: [{ role: 'user', parts: contentParts }],
+      config: { responseModalities: ['TEXT', 'IMAGE'] },
+    } as any);
+
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find((p: any) => p.inlineData);
+    if (!imagePart) {
+      return res.status(500).json({ error: 'AI không trả về ảnh. Vui lòng thử lại.' });
+    }
+
+    res.json({
+      imageBase64: imagePart.inlineData?.data,
+      mimeType: imagePart.inlineData?.mimeType || 'image/png',
+    });
+  } catch (err: any) {
+    console.error('generate-frame-image error:', err);
+    res.status(500).json({ error: err.message || 'Lỗi không xác định khi tạo ảnh AI.' });
+  }
+}); 
   // 9i. AI Video (Veo): bắt đầu tạo video chuyển động thật từ ảnh khung hình
   // — chỉ dùng cho những khung giáo viên đánh dấu "cần chuyển động thực sự",
   // các khung còn lại vẫn dùng hiệu ứng Ken Burns (zoom/pan) khi xuất video.

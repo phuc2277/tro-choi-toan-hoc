@@ -690,6 +690,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           <Step6ComicArtStudio
             scenes={project.scenes}
             characters={project.characters}
+            onUpdateCharacters={handleUpdateCharacters}
             artStyle={project.artStyle || project.style || 'modern-comic'}
             onUpdateScenes={handleUpdateScenes}
             onUpdateArtStyle={handleUpdateArtStyle}

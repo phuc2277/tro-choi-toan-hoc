@@ -20,10 +20,10 @@ import {
   Clapperboard,
   Loader2,
 } from 'lucide-react';
-
 interface Step6ComicArtStudioProps {
   scenes: ComicScene[];
   characters: CharacterProfile[];
+  onUpdateCharacters: (characters: CharacterProfile[]) => void;   // <-- THÊM DÒNG NÀY
   artStyle: ComicArtStyle;
   onUpdateScenes: (scenes: ComicScene[]) => void;
   onUpdateArtStyle: (style: ComicArtStyle) => void;
@@ -35,6 +35,7 @@ interface Step6ComicArtStudioProps {
 export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   scenes,
   characters,
+  onUpdateCharacters,   // <-- THÊM VÀO DANH SÁCH PROPS NHẬN VÀO
   artStyle,
   onUpdateScenes,
   onUpdateArtStyle,
@@ -61,8 +62,52 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   const [aiVideoError, setAiVideoError] = useState<string | null>(null);
   const [bulkVideoRunning, setBulkVideoRunning] = useState(false);
   const [bulkVideoProgress, setBulkVideoProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+  const [forceRegenerateVideo, setForceRegenerateVideo] = useState(false);
    const [bulkImageRunning, setBulkImageRunning] = useState(false);
   const [bulkImageProgress, setBulkImageProgress] = useState<{ current: number; total: number } | null>(null);
+  const [bulkImageError, setBulkImageError] = useState<string | null>(null);
+const [charRefRunning, setCharRefRunning] = useState(false);
+const [charRefProgress, setCharRefProgress] = useState<{ current: number; total: number } | null>(null);
+const [charRefError, setCharRefError] = useState<string | null>(null);
+  // Tạo ảnh chân dung tham chiếu cho các nhân vật CHƯA có ảnh — dùng làm ảnh gốc
+// để giữ nhất quán ngoại hình khi tạo ảnh khung hình ở bước sau.
+const handleGenerateCharacterReferences = async () => {
+  setCharRefRunning(true);
+  setCharRefError(null);
+  const missing = characters.filter((c) => !c.referenceImage);
+  let updatedCharacters = characters;
+  for (let i = 0; i < missing.length; i++) {
+    const char = missing[i];
+    setCharRefProgress({ current: i + 1, total: missing.length });
+    try {
+      const res = await fetch('/api/comic/generate-character-reference', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character: char }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.imageBase64) {
+        throw new Error(data.error || 'AI không trả về ảnh tham chiếu.');
+      }
+      updatedCharacters = updatedCharacters.map((c) =>
+        c.id !== char.id
+          ? c
+          : { ...c, referenceImage: { imageBase64: data.imageBase64, mimeType: data.mimeType, generatedAt: new Date().toISOString() } }
+      );
+      onUpdateCharacters(updatedCharacters);
+    } catch (err: any) {
+      const msg = err?.message || 'Lỗi không xác định';
+      console.error(`Lỗi tạo ảnh tham chiếu cho ${char.name}:`, err);
+      if (/RESOURCE_EXHAUSTED|429|quota|NOT_FOUND|API key|403|401/i.test(msg)) {
+        setCharRefError(`Dừng tạo ảnh tham chiếu ở nhân vật ${char.name}: ${msg}`);
+        break;
+      }
+      setCharRefError(`Nhân vật ${char.name} lỗi: ${msg}`);
+    }
+  }
+  setCharRefProgress(null);
+  setCharRefRunning(false);
+};
   const currentPair = allFrames[selectedFrameIndex] || allFrames[0];
   const currentFrame = currentPair?.frame;
   const currentScene = currentPair?.scene;
@@ -138,40 +183,68 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
     }
   };
     const handleGenerateAllFrameImages = async () => {
-    setBulkImageRunning(true);
-    let workingScenes = scenes;
-    for (let i = 0; i < allFrames.length; i++) {
-      const { scene, frame } = allFrames[i];
-      setBulkImageProgress({ current: i + 1, total: allFrames.length });
-      try {
-        const res = await fetch('/api/comic/generate-frame-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: frame.promptDetails?.fullPrompt || frame.visualAction || frame.title || '' }),
-        });
-        const data = await res.json();
-        if (res.ok && data.imageBase64) {
-          workingScenes = workingScenes.map((s) =>
-            s.sceneId !== scene.sceneId
-              ? s
-              : {
-                  ...s,
-                  frames: s.frames.map((f) =>
-                    f.frameId !== frame.frameId
-                      ? f
-                      : { ...f, generatedImage: { imageBase64: data.imageBase64, mimeType: data.mimeType, generatedAt: new Date().toISOString() } }
-                  ),
-                }
-          );
-          onUpdateScenes(workingScenes);
-        }
-      } catch (err) {
-        console.error(`Lỗi tạo ảnh 3D cho ${frame.frameId}:`, err);
+  setBulkImageRunning(true);
+  setBulkImageError(null);
+  let workingScenes = scenes;
+  let failed = 0;
+  for (let i = 0; i < allFrames.length; i++) {
+    const { scene, frame } = allFrames[i];
+    setBulkImageProgress({ current: i + 1, total: allFrames.length });
+    if (frame.generatedImage) continue; // đã có ảnh thì bỏ qua
+
+    // Ghép mô tả nhân vật + ảnh tham chiếu (nếu đã tạo ở Bước 0) để AI vẽ đúng ngoại hình
+    const frameCharacters = (frame.characterIds || [])
+      .map((id) => characters.find((c) => c.id === id))
+      .filter((c): c is CharacterProfile => !!c);
+    const charDesc = frameCharacters.map((c) => `${c.name}: ${c.appearance}; ${c.outfit}`).join(' | ');
+    const referenceImages = frameCharacters
+      .filter((c) => !!c.referenceImage)
+      .map((c) => ({
+        imageBase64: c.referenceImage!.imageBase64,
+        mimeType: c.referenceImage!.mimeType,
+        characterName: c.name,
+      }));
+    const basePrompt = frame.promptDetails?.fullPrompt || frame.visualAction || frame.title || '';
+    const prompt = charDesc ? `${basePrompt}. Characters (keep consistent): ${charDesc}` : basePrompt;
+
+    try {
+      const res = await fetch('/api/comic/generate-frame-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, referenceImages }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.imageBase64) {
+        throw new Error(data.error || 'AI không trả về ảnh.');
       }
+      workingScenes = workingScenes.map((s) =>
+        s.sceneId !== scene.sceneId
+          ? s
+          : {
+              ...s,
+              frames: s.frames.map((f) =>
+                f.frameId !== frame.frameId
+                  ? f
+                  : { ...f, generatedImage: { imageBase64: data.imageBase64, mimeType: data.mimeType, generatedAt: new Date().toISOString() } }
+              ),
+            }
+      );
+      onUpdateScenes(workingScenes);
+    } catch (err: any) {
+      failed++;
+      const msg = err?.message || 'Lỗi không xác định';
+      console.error(`Lỗi tạo ảnh 3D cho ${frame.frameId}:`, err);
+      // Lỗi quota/key/model sẽ lặp lại ở mọi khung -> dừng luôn
+      if (/RESOURCE_EXHAUSTED|429|quota|NOT_FOUND|API key|403|401/i.test(msg)) {
+        setBulkImageError(`Dừng tạo ảnh ở ${frame.frameId}: ${msg}`);
+        break;
+      }
+      setBulkImageError(`Khung ${frame.frameId} lỗi: ${msg}`);
     }
-    setBulkImageProgress(null);
-    setBulkImageRunning(false);
-  };
+  }
+  setBulkImageProgress(null);
+  setBulkImageRunning(false);
+};
   // Tạo AI Video (Veo) cho TOÀN BỘ khung hình trong truyện, lần lượt từng khung một,
   // để đúng nội dung từng cảnh (không dùng chung 1 prompt cho tất cả).
   const handleGenerateAllAiVideos = async () => {
@@ -181,6 +254,13 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
 
     for (let i = 0; i < allFrames.length; i++) {
       const { scene, frame } = allFrames[i];
+
+      // Resume thông minh: khung đã có video từ lần chạy trước thì bỏ qua,
+      // trừ khi người dùng tick "Tạo lại toàn bộ".
+      if (!forceRegenerateVideo && frame.aiVideoClip) {
+        continue;
+      }
+
       setSelectedFrameIndex(i);
       setBulkVideoProgress({ current: i + 1, total: allFrames.length, message: `Đang chuẩn bị khung ${frame.frameId}...` });
 
@@ -317,6 +397,9 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
     passed: false,
   };
 
+  const pendingVideoFrames = allFrames.filter(({ frame }) => forceRegenerateVideo || !frame.aiVideoClip);
+  const doneVideoCount = allFrames.length - pendingVideoFrames.length;
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -405,6 +488,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                 </button>
+               
               </div>
             </div>
           </div>
@@ -418,6 +502,48 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
               showOverlayLayer={showOverlay}
             />
           </div>
+                    <div className="mb-4 p-4 rounded-2xl border border-emerald-500/30 bg-emerald-950/20">
+            <div className="flex items-center gap-2 mb-2">
+              <Palette className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-bold text-emerald-200">
+                Bước 0: Tạo Ảnh Tham Chiếu Nhân Vật ({characters.filter((c) => c.referenceImage).length}/{characters.length})
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              Làm bước này TRƯỚC bước 1. Ảnh tham chiếu giúp AI giữ đúng ngoại hình từng nhân vật xuyên suốt truyện.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {characters.map((c) => (
+                <div key={c.id} className="flex flex-col items-center gap-1 w-16">
+                  <div className="w-14 h-14 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 flex items-center justify-center">
+                    {c.referenceImage ? (
+                      <img
+                        src={`data:${c.referenceImage.mimeType};base64,${c.referenceImage.imageBase64}`}
+                        alt={c.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-[9px] text-slate-500 text-center px-1">Chưa có</span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 truncate w-full text-center">{c.name}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={handleGenerateCharacterReferences}
+              disabled={charRefRunning || characters.every((c) => !!c.referenceImage)}
+              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2"
+            >
+              {charRefRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {charRefRunning
+                ? `Đang tạo ảnh tham chiếu... (${charRefProgress?.current}/${charRefProgress?.total})`
+                : characters.every((c) => !!c.referenceImage)
+                ? 'Đã có đủ ảnh tham chiếu'
+                : 'Tạo Ảnh Tham Chiếu Cho Nhân Vật Còn Thiếu'}
+            </button>
+            {charRefError && <p className="text-xs text-rose-400 mt-2">{charRefError}</p>}
+          </div>
                     <div className="mb-4 p-4 rounded-2xl border border-cyan-500/30 bg-cyan-950/20">
             <div className="flex items-center gap-2 mb-2">
               <Palette className="w-4 h-4 text-cyan-400" />
@@ -429,26 +555,46 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
               disabled={bulkImageRunning}
               className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm font-bold flex items-center justify-center gap-2"
             >
+  
               {bulkImageRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {bulkImageRunning ? `Đang tạo ảnh 3D... (${bulkImageProgress?.current}/${bulkImageProgress?.total})` : 'Tạo Ảnh 3D AI Cho Tất Cả Khung Hình'}
             </button>
+            {bulkImageError && <p className="text-xs text-rose-400 mt-2">{bulkImageError}</p>}
           </div>
           {/* Tạo AI Video (Veo) cho TOÀN BỘ truyện, từng khung một */}
           <div className="mb-4 p-4 rounded-2xl border border-purple-500/30 bg-purple-950/20">
             <div className="flex items-center gap-2 mb-2">
               <Clapperboard className="w-4 h-4 text-purple-400" />
-              <span className="text-sm font-bold text-purple-200">Tạo Video AI (Veo) cho TOÀN BỘ {allFrames.length} khung hình</span>
+              <span className="text-sm font-bold text-purple-200">
+                Tạo Video AI (Veo) cho TOÀN BỘ {allFrames.length} khung hình ({doneVideoCount}/{allFrames.length} đã xong)
+              </span>
             </div>
             <p className="text-xs text-slate-400 mb-3">
               Mỗi khung mất 1-5 phút, tổng thời gian có thể lên tới hàng chục phút. Không tắt trình duyệt trong lúc chạy.
+              {doneVideoCount > 0 && !forceRegenerateVideo && (
+                <> Sẽ chỉ tạo cho {pendingVideoFrames.length} khung còn thiếu, giữ nguyên {doneVideoCount} khung đã có.</>
+              )}
             </p>
+            <label className="flex items-center gap-2 text-xs text-slate-400 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={forceRegenerateVideo}
+                onChange={(e) => setForceRegenerateVideo(e.target.checked)}
+                className="accent-purple-500"
+              />
+              Tạo lại toàn bộ (bỏ qua {doneVideoCount} video đã có — sẽ tốn thêm quota/chi phí)
+            </label>
             <button
               onClick={handleGenerateAllAiVideos}
-              disabled={bulkVideoRunning}
+              disabled={bulkVideoRunning || pendingVideoFrames.length === 0}
               className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors"
             >
               {bulkVideoRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {bulkVideoRunning ? 'Đang tạo video AI...' : 'Bắt Đầu Tạo Video AI Cho Cả Truyện'}
+              {bulkVideoRunning
+                ? 'Đang tạo video AI...'
+                : pendingVideoFrames.length === 0
+                ? 'Tất cả khung đã có video'
+                : `Tạo Video AI Cho ${pendingVideoFrames.length} Khung Còn Thiếu`}
             </button>
             
             {bulkVideoProgress && (
