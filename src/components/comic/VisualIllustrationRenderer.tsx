@@ -35,8 +35,9 @@ export const VisualIllustrationRenderer: React.FC<VisualIllustrationRendererProp
   if (frame.generatedImage) {
     return (
       <img
-        src={`data:${frame.generatedImage.mimeType};base64,${frame.generatedImage.imageBase64}`}
+        src={frame.generatedImage.imageUrl}
         alt={frame.title || 'Minh họa AI'}
+        crossOrigin="anonymous"
         className="w-full h-full absolute inset-0 object-cover"
       />
     );

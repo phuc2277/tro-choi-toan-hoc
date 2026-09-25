@@ -29,7 +29,7 @@ export interface CharacterProfile {
   avatarUrl?: string;
   gender?: 'male' | 'female';
   referenceImage?: {
-    imageBase64: string;
+    imageUrl: string; // Firebase Storage download URL (không còn base64 — tránh phình state/Firestore)
     mimeType: string;
     generatedAt: string;
   };
@@ -105,7 +105,7 @@ export interface ConsistencyCheckResult {
 }
 
 export interface AIVideoClip {
-  videoBase64: string; // base64-encoded mp4
+  videoUrl: string; // Firebase Storage download URL (mp4)
   mimeType: string;
   prompt: string;
   generatedAt: string;
@@ -138,7 +138,7 @@ export interface ComicFrame {
   needsAiVideo?: boolean;
   aiVideoClip?: AIVideoClip;
     generatedImage?: {
-    imageBase64: string;
+    imageUrl: string; // Firebase Storage download URL (không còn base64)
     mimeType: string;
     generatedAt: string;
   };

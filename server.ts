@@ -75,70 +75,87 @@ async function generateContentWithFallback(
   // Deduplicate candidate models while preserving order
   const models = Array.from(new Set(candidateModels));
 
+  // Thử toàn bộ chuỗi model tối đa 2 vòng: vòng 1 ngay lập tức, vòng 2 sau khi
+  // nghỉ dài hơn — vì lỗi 503 (quá tải) thường chỉ kéo dài vài giây đến vài chục giây,
+  // nên đợi rồi thử lại cả chuỗi có cơ hội thành công cao hơn nhiều so với báo lỗi ngay.
+  const maxChainRounds = 2;
   let lastError: any = null;
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-
-    // For 503 (high demand spikes), don't hammer the same busy model twice — jump directly to fallback model
-    const maxAttempts = 2;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config,
-        });
-        return response;
-      } catch (err: any) {
-        lastError = err;
-        const errMsg = err?.message || String(err);
-        const is503 =
-          err?.status === 503 ||
-          errMsg.includes('503') ||
-          errMsg.includes('high demand') ||
-          errMsg.includes('UNAVAILABLE') ||
-          errMsg.includes('overloaded');
-        const is429 =
-          err?.status === 429 ||
-          errMsg.includes('429') ||
-          errMsg.includes('Resource has been exhausted') ||
-          errMsg.includes('quota');
-
-        if (is503) {
-          console.log(`[Gemini API] Model ${model} is currently experiencing high demand (503). Smoothly switching to alternative model...`);
-          // Break immediately out of attempt loop to try next model in candidate list
-          break;
-        }
-
-        if (is429) {
-          console.log(`[Gemini API] Model ${model} reached rate limit (429).`);
-          if (attempt === 0) {
-            const backoffMs = 1200 + Math.floor(Math.random() * 500);
-            await new Promise((resolve) => setTimeout(resolve, backoffMs));
-            continue;
-          }
-          break;
-        }
-
-        console.log(`[Gemini API] Request on ${model} (attempt ${attempt + 1}): ${errMsg.slice(0, 150)}`);
-        break;
-      }
+  for (let round = 0; round < maxChainRounds; round++) {
+    if (round > 0) {
+      const chainBackoffMs = 4000 + Math.floor(Math.random() * 1500);
+      console.log(`[Gemini API] Tất cả model đều bận ở vòng ${round}. Đợi ${Math.round(chainBackoffMs / 1000)}s rồi thử lại toàn bộ chuỗi model...`);
+      await new Promise((resolve) => setTimeout(resolve, chainBackoffMs));
     }
 
-    if (i < models.length - 1) {
-      const nextModel = models[i + 1];
-      console.log(`[Gemini API] Routing request to fallback model: ${nextModel}...`);
-      await new Promise((resolve) => setTimeout(resolve, 300));
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+
+      // Với lỗi 503 (quá tải đột biến), không dồn ép cùng 1 model — chuyển thẳng sang model dự phòng.
+      // Với lỗi 429 (rate limit), thử lại chính model đó 1 lần sau khi nghỉ ngắn, vì thường tự hồi phục nhanh.
+      const maxAttempts = 2;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: params.contents,
+            config: params.config,
+          });
+          if (round > 0 || i > 0) {
+            console.log(`[Gemini API] Thành công với model ${model} (vòng ${round + 1}, model thứ ${i + 1}).`);
+          }
+          return response;
+        } catch (err: any) {
+          lastError = err;
+          const errMsg = err?.message || String(err);
+          const is503 =
+            err?.status === 503 ||
+            errMsg.includes('503') ||
+            errMsg.includes('high demand') ||
+            errMsg.includes('UNAVAILABLE') ||
+            errMsg.includes('overloaded');
+          const is429 =
+            err?.status === 429 ||
+            errMsg.includes('429') ||
+            errMsg.includes('Resource has been exhausted') ||
+            errMsg.includes('quota');
+
+          if (is503) {
+            console.log(`[Gemini API] Model ${model} đang quá tải (503). Chuyển sang model dự phòng...`);
+            break;
+          }
+
+          if (is429) {
+            console.log(`[Gemini API] Model ${model} đạt giới hạn tốc độ (429).`);
+            if (attempt === 0) {
+              const backoffMs = 1200 + Math.floor(Math.random() * 500);
+              await new Promise((resolve) => setTimeout(resolve, backoffMs));
+              continue;
+            }
+            break;
+          }
+
+          console.log(`[Gemini API] Lỗi ở model ${model} (lần thử ${attempt + 1}): ${errMsg.slice(0, 150)}`);
+          break;
+        }
+      }
+
+      if (i < models.length - 1) {
+        const nextModel = models[i + 1];
+        console.log(`[Gemini API] Chuyển hướng sang model dự phòng: ${nextModel}...`);
+        // Backoff tăng dần theo từng model đã thử, để nhường thời gian cho tải giảm bớt
+        const interModelBackoffMs = 800 * (i + 1) + Math.floor(Math.random() * 400);
+        await new Promise((resolve) => setTimeout(resolve, interModelBackoffMs));
+      }
     }
   }
 
-  // Format error politely if all models failed
+  // Format error politely if all models failed sau cả 2 vòng thử
   const finalMsg = lastError?.message || 'Lỗi kết nối Gemini AI';
   if (finalMsg.includes('503') || finalMsg.includes('high demand') || finalMsg.includes('UNAVAILABLE')) {
     throw new Error(
-      'Hệ thống AI đang có lượng truy cập cao đột biến (503). Vui lòng thử lại sau vài giây.'
+      'Hệ thống AI đang có lượng truy cập cao đột biến. Đã thử lại nhiều lần nhưng chưa thành công — vui lòng thử lại sau khoảng 1 phút.'
     );
   } else if (finalMsg.includes('429') || finalMsg.includes('quota') || finalMsg.includes('Resource has been exhausted')) {
     throw new Error('Đã đạt giới hạn yêu cầu tạm thời (429). Vui lòng đợi 3 - 5 giây và thử lại.');

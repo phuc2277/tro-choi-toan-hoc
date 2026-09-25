@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { ComicScene, ComicFrame, CharacterProfile, ComicArtStyle, LessonKnowledgeProfile } from '../../types/comicLesson';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
 import { toPng } from 'html-to-image';
+import { uploadFrameImage, uploadFrameVideo, uploadCharacterReference, fetchImageAsBase64 } from './comicStorage';
 import {
   Palette,
   Sparkles,
@@ -23,7 +24,8 @@ import {
 interface Step6ComicArtStudioProps {
   scenes: ComicScene[];
   characters: CharacterProfile[];
-  onUpdateCharacters: (characters: CharacterProfile[]) => void;   // <-- THÊM DÒNG NÀY
+  onUpdateCharacters: (characters: CharacterProfile[]) => void;
+  projectId: string;   // <-- THÊM DÒNG NÀY: dùng làm đường dẫn lưu ảnh/video trên Firebase Storage
   artStyle: ComicArtStyle;
   onUpdateScenes: (scenes: ComicScene[]) => void;
   onUpdateArtStyle: (style: ComicArtStyle) => void;
@@ -35,7 +37,8 @@ interface Step6ComicArtStudioProps {
 export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   scenes,
   characters,
-  onUpdateCharacters,   // <-- THÊM VÀO DANH SÁCH PROPS NHẬN VÀO
+  onUpdateCharacters,
+  projectId,   // <-- THÊM VÀO DANH SÁCH PROPS NHẬN VÀO
   artStyle,
   onUpdateScenes,
   onUpdateArtStyle,
@@ -89,10 +92,12 @@ const handleGenerateCharacterReferences = async () => {
       if (!res.ok || !data.imageBase64) {
         throw new Error(data.error || 'AI không trả về ảnh tham chiếu.');
       }
+      // Upload lên Firebase Storage, chỉ lưu URL vào state (không giữ base64 nặng).
+      const imageUrl = await uploadCharacterReference(projectId, char.id, data.imageBase64, data.mimeType || 'image/png');
       updatedCharacters = updatedCharacters.map((c) =>
         c.id !== char.id
           ? c
-          : { ...c, referenceImage: { imageBase64: data.imageBase64, mimeType: data.mimeType, generatedAt: new Date().toISOString() } }
+          : { ...c, referenceImage: { imageUrl, mimeType: data.mimeType || 'image/png', generatedAt: new Date().toISOString() } }
       );
       onUpdateCharacters(updatedCharacters);
     } catch (err: any) {
@@ -164,9 +169,16 @@ const handleGenerateCharacterReferences = async () => {
         if (!statusRes.ok) throw new Error(statusData.error || 'Lỗi kiểm tra trạng thái AI Video.');
         if (statusData.done) {
           if (statusData.error) throw new Error(statusData.error);
+          setAiVideoStatus('polling'); // giữ trạng thái đang xử lý trong lúc upload lên Storage
+          const videoUrl = await uploadFrameVideo(
+            projectId,
+            currentFrame.frameId,
+            statusData.videoBase64,
+            statusData.mimeType || 'video/mp4'
+          );
           updateCurrentFrame({
             aiVideoClip: {
-              videoBase64: statusData.videoBase64,
+              videoUrl,
               mimeType: statusData.mimeType || 'video/mp4',
               prompt: currentFrame.promptDetails?.videoPrompt || '',
               generatedAt: new Date().toISOString(),
@@ -187,27 +199,40 @@ const handleGenerateCharacterReferences = async () => {
   setBulkImageError(null);
   let workingScenes = scenes;
   let failed = 0;
+  // Cache base64 của ảnh tham chiếu theo nhân vật, để không tải lại nhiều lần khi
+  // 1 nhân vật xuất hiện ở nhiều khung.
+  const refBase64Cache = new Map<string, { base64: string; mimeType: string }>();
   for (let i = 0; i < allFrames.length; i++) {
     const { scene, frame } = allFrames[i];
     setBulkImageProgress({ current: i + 1, total: allFrames.length });
     if (frame.generatedImage) continue; // đã có ảnh thì bỏ qua
 
-    // Ghép mô tả nhân vật + ảnh tham chiếu (nếu đã tạo ở Bước 0) để AI vẽ đúng ngoại hình
+    // Ghép mô tả nhân vật + ảnh tham chiếu (nếu đã tạo ở Bước 0) để AI vẽ đúng ngoại hình.
+    // Ảnh tham chiếu giờ chỉ lưu URL trên Storage, nên cần tải lại thành base64 trước
+    // khi gửi cho server (Gemini yêu cầu ảnh dạng inline base64, không nhận URL).
     const frameCharacters = (frame.characterIds || [])
       .map((id) => characters.find((c) => c.id === id))
       .filter((c): c is CharacterProfile => !!c);
     const charDesc = frameCharacters.map((c) => `${c.name}: ${c.appearance}; ${c.outfit}`).join(' | ');
-    const referenceImages = frameCharacters
-      .filter((c) => !!c.referenceImage)
-      .map((c) => ({
-        imageBase64: c.referenceImage!.imageBase64,
-        mimeType: c.referenceImage!.mimeType,
-        characterName: c.name,
-      }));
     const basePrompt = frame.promptDetails?.fullPrompt || frame.visualAction || frame.title || '';
     const prompt = charDesc ? `${basePrompt}. Characters (keep consistent): ${charDesc}` : basePrompt;
 
     try {
+      const referenceImages: Array<{ imageBase64: string; mimeType: string; characterName: string }> = [];
+      for (const c of frameCharacters) {
+        if (!c.referenceImage) continue;
+        if (!refBase64Cache.has(c.id)) {
+          try {
+            refBase64Cache.set(c.id, await fetchImageAsBase64(c.referenceImage.imageUrl));
+          } catch (fetchErr: any) {
+            console.warn(`Không tải được ảnh tham chiếu của ${c.name}, bỏ qua ảnh này:`, fetchErr?.message);
+            continue;
+          }
+        }
+        const cached = refBase64Cache.get(c.id);
+        if (cached) referenceImages.push({ imageBase64: cached.base64, mimeType: cached.mimeType, characterName: c.name });
+      }
+
       const res = await fetch('/api/comic/generate-frame-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -217,6 +242,8 @@ const handleGenerateCharacterReferences = async () => {
       if (!res.ok || !data.imageBase64) {
         throw new Error(data.error || 'AI không trả về ảnh.');
       }
+      // Upload ảnh vừa tạo lên Firebase Storage, chỉ lưu URL vào state.
+      const imageUrl = await uploadFrameImage(projectId, frame.frameId, data.imageBase64, data.mimeType || 'image/png');
       workingScenes = workingScenes.map((s) =>
         s.sceneId !== scene.sceneId
           ? s
@@ -225,7 +252,7 @@ const handleGenerateCharacterReferences = async () => {
               frames: s.frames.map((f) =>
                 f.frameId !== frame.frameId
                   ? f
-                  : { ...f, generatedImage: { imageBase64: data.imageBase64, mimeType: data.mimeType, generatedAt: new Date().toISOString() } }
+                  : { ...f, generatedImage: { imageUrl, mimeType: data.mimeType || 'image/png', generatedAt: new Date().toISOString() } }
               ),
             }
       );
@@ -309,8 +336,15 @@ const handleGenerateCharacterReferences = async () => {
           if (!statusRes.ok) throw new Error(statusData.error || 'Lỗi kiểm tra trạng thái AI Video.');
           if (statusData.done) {
             if (statusData.error) throw new Error(statusData.error);
+            setBulkVideoProgress({ current: i + 1, total: allFrames.length, message: `Đang lưu video ${frame.frameId}...` });
+            const videoUrl = await uploadFrameVideo(
+              projectId,
+              frame.frameId,
+              statusData.videoBase64,
+              statusData.mimeType || 'video/mp4'
+            );
             clip = {
-              videoBase64: statusData.videoBase64,
+              videoUrl,
               mimeType: statusData.mimeType || 'video/mp4',
               prompt: frame.promptDetails?.videoPrompt || '',
               generatedAt: new Date().toISOString(),
@@ -399,6 +433,13 @@ const handleGenerateCharacterReferences = async () => {
 
   const pendingVideoFrames = allFrames.filter(({ frame }) => forceRegenerateVideo || !frame.aiVideoClip);
   const doneVideoCount = allFrames.length - pendingVideoFrames.length;
+  // Ước tính chi phí Veo: model 'fast' ~ $0.10/giây (720p) trên Gemini API, mỗi khung 6 giây.
+  // Đây là số ước tính để tham khảo — giá thực tế có thể thay đổi theo model/độ phân giải,
+  // xem giá mới nhất tại https://ai.google.dev/gemini-api/docs/pricing
+  const VEO_SECONDS_PER_FRAME = 6;
+  const VEO_COST_PER_SECOND_USD = 0.1;
+  const estimatedVideoSeconds = pendingVideoFrames.length * VEO_SECONDS_PER_FRAME;
+  const estimatedVideoCostUsd = estimatedVideoSeconds * VEO_COST_PER_SECOND_USD;
 
   return (
     <div className="space-y-6">
@@ -518,7 +559,7 @@ const handleGenerateCharacterReferences = async () => {
                   <div className="w-14 h-14 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 flex items-center justify-center">
                     {c.referenceImage ? (
                       <img
-                        src={`data:${c.referenceImage.mimeType};base64,${c.referenceImage.imageBase64}`}
+                        src={c.referenceImage.imageUrl}
                         alt={c.name}
                         className="w-full h-full object-cover"
                       />
@@ -584,6 +625,12 @@ const handleGenerateCharacterReferences = async () => {
               />
               Tạo lại toàn bộ (bỏ qua {doneVideoCount} video đã có — sẽ tốn thêm quota/chi phí)
             </label>
+            {pendingVideoFrames.length > 0 && (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-500/30 text-[11px] text-amber-200">
+                💰 Ước tính: {pendingVideoFrames.length} khung × {VEO_SECONDS_PER_FRAME}s = {estimatedVideoSeconds}s video
+                Veo, khoảng <strong>${estimatedVideoCostUsd.toFixed(2)}</strong> (giá tham khảo, kiểm tra billing trước khi chạy).
+              </div>
+            )}
             <button
               onClick={handleGenerateAllAiVideos}
               disabled={bulkVideoRunning || pendingVideoFrames.length === 0}
@@ -657,7 +704,7 @@ const handleGenerateCharacterReferences = async () => {
             {currentFrame.aiVideoClip && (
               <video
                 key={currentFrame.aiVideoClip.generatedAt}
-                src={`data:${currentFrame.aiVideoClip.mimeType};base64,${currentFrame.aiVideoClip.videoBase64}`}
+                src={currentFrame.aiVideoClip.videoUrl}
                 controls
                 loop
                 muted
