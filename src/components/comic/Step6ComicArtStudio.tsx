@@ -441,6 +441,29 @@ const handleGenerateCharacterReferences = async () => {
   const estimatedVideoSeconds = pendingVideoFrames.length * VEO_SECONDS_PER_FRAME;
   const estimatedVideoCostUsd = estimatedVideoSeconds * VEO_COST_PER_SECOND_USD;
 
+  // Bảo vệ khỏi trang trắng/crash: nếu dự án chưa có khung hình nào (chưa tạo
+  // storyboard ở Bước 5, hoặc scenes rỗng), currentFrame/currentScene sẽ là
+  // undefined — hiện thông báo thân thiện thay vì để JSX bên dưới đọc thẳng
+  // currentFrame.frameId và làm crash toàn bộ trang.
+  if (!currentFrame || !currentScene) {
+    return (
+      <div className="space-y-6">
+        <div className="p-8 rounded-2xl border border-amber-500/30 bg-amber-950/20 text-center">
+          <p className="text-amber-200 font-bold mb-2">Chưa có khung hình nào để hiển thị.</p>
+          <p className="text-xs text-slate-400 mb-4">
+            Bạn cần tạo storyboard ở Bước 5 trước khi vào Studio Bộ Truyện Tranh.
+          </p>
+          <button
+            onClick={onPrevStep}
+            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+          >
+            ← Quay Lại Bước 5
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
