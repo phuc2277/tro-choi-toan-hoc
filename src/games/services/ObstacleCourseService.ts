@@ -122,11 +122,11 @@ export class ObstacleCourseService {
     // Discovery perks at specific milestones
     if (isCorrect) {
       scoreGain = 10;
-      if (newClearedCount === 3 && !explorer.itemsUnlocked.includes('🛡️ Khiên Thần')) {
-        itemFound = '🛡️ Khiên Hộ Mệnh Cổ Đại';
-      } else if (newClearedCount === 6 && !explorer.itemsUnlocked.includes('⚡ Giày Siêu Tốc')) {
-        itemFound = '⚡ Giày Thần Siêu Tốc';
-      }
+      if (newClearedCount === 3 && !explorer.itemsUnlocked.includes('🛡️ Khiên Hộ Mệnh Cổ Đại')) {
+  itemFound = '🛡️ Khiên Hộ Mệnh Cổ Đại';
+} else if (newClearedCount === 6 && !explorer.itemsUnlocked.includes('⚡ Giày Thần Siêu Tốc')) {
+  itemFound = '⚡ Giày Thần Siêu Tốc';
+}
     }
 
     const updatedItems = itemFound ? [...explorer.itemsUnlocked, itemFound] : explorer.itemsUnlocked;
