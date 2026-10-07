@@ -34,7 +34,6 @@ import {
   Users,
   Film,
   CheckSquare,
-  Palette,
   Mic,
   Video,
   ChevronRight,
@@ -55,64 +54,13 @@ import {
 
 interface ComicLessonStudioProps {
   onBackToMain?: () => void;
-  initialLessonContext?: {
-    subject: string;
-    grade: string;
-    chapter: string;
-    lessonTitle: string;
-    sourceText?: string;
-  };
 }
 
-export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMain, initialLessonContext }) => {
+export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMain }) => {
   const teacherAuth = useTeacherAuth();
 
   // Current active project
   const [project, setProject] = useState<ComicLessonProject>(() => {
-    // Nếu được mở từ 1 bài học cụ thể (nút "AI Truyện Tranh" trên trang chủ) → ưu tiên dùng đúng bài đó
-       if (initialLessonContext) {
-      return {
-        id: `proj-lesson-${Date.now()}`,
-        title: initialLessonContext.lessonTitle,
-        description: '',
-        subject: initialLessonContext.subject,
-        grade: initialLessonContext.grade,
-        style: 'modern-comic',
-        artStyle: 'modern-comic',
-        humorLevel: 'natural',
-        currentStep: 1,
-        knowledgeProfile: {
-          subject: initialLessonContext.subject,
-          grade: initialLessonContext.grade,
-          chapter: initialLessonContext.chapter,
-          lessonTitle: initialLessonContext.lessonTitle,
-          objectives: [],
-          coreKnowledge: [],
-          concepts: [],
-          formulas: [],
-          examples: [],
-          problemSolvingProcess: [],
-          importantDiagrams: [],
-          keyTerms: [],
-          commonMisconceptions: [],
-          teacherNotes: '',
-        },
-        storyKernel: {
-          problemStatement: '',
-          protagonistNames: [],
-          goal: '',
-          obstacles: '',
-          knowledgeToDiscover: '',
-          climax: '',
-          resolution: '',
-          knowledgeConclusion: '',
-        },
-        characters: [],
-        scenes: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-    }
     try {
       const cached = localStorage.getItem('cached_comic_lesson_project');
       if (cached) {
@@ -348,13 +296,14 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
     { num: 3, label: 'Kho Nhân Vật', icon: Users, desc: 'Character Library' },
     { num: 4, label: 'Viết Kịch Bản', icon: Film, desc: '8 Cảnh chuẩn sư phạm' },
     { num: 5, label: 'Duyệt Storyboard', icon: CheckSquare, desc: 'Bảng phê duyệt Frame' },
-    { num: 6, label: 'Tạo Bộ Tranh', icon: Palette, desc: 'Visual Studio & KaTeX' },
+    { num: 6, label: 'Tạo Video AI', icon: Video, desc: 'Veo Studio & KaTeX' },
     { num: 7, label: 'Audio & Lời Bình', icon: Mic, desc: 'Hội thoại & SFX' },
     { num: 8, label: 'Video & Đọc Truyện', icon: Video, desc: 'Chế độ chiếu & Tự học' },
   ];
 
   return (
-<div className="min-h-screen bg-[#070A13] text-slate-100 flex flex-col relative z-10">      {/* Top Breadcrumb & Project Bar */}
+    <div className="min-h-screen bg-[#070A13] text-slate-100 flex flex-col">
+      {/* Top Breadcrumb & Project Bar */}
       <div className="border-b border-cyan-500/20 bg-slate-950/80 backdrop-blur-md px-4 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30 shadow-lg">
         <div className="flex items-center gap-3">
           {onBackToMain && (
@@ -642,14 +591,15 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           />
         )}
 
-        {currentStep === 1 && (
-  <Step1KnowledgeProfile
-    knowledgeProfile={project.knowledgeProfile}
-    onUpdateKnowledgeProfile={handleUpdateKnowledgeProfile}
-    onNextStep={() => setCurrentStep(2)}
-    initialSourceText={initialLessonContext?.sourceText}
-  />
-)}
+        {currentStep === 2 && (
+          <Step2StoryKernel
+            storyKernel={project.storyKernel}
+            knowledgeProfile={project.knowledgeProfile}
+            onUpdateStoryKernel={handleUpdateStoryKernel}
+            onNextStep={() => setCurrentStep(3)}
+            onPrevStep={() => setCurrentStep(1)}
+          />
+        )}
 
         {currentStep === 3 && (
           <Step3CharacterLibrary
@@ -690,7 +640,6 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           <Step6ComicArtStudio
             scenes={project.scenes}
             characters={project.characters}
-            onUpdateCharacters={handleUpdateCharacters}
             artStyle={project.artStyle || project.style || 'modern-comic'}
             onUpdateScenes={handleUpdateScenes}
             onUpdateArtStyle={handleUpdateArtStyle}

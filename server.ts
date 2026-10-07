@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { uploadBufferToStorage } from './firebaseAdmin';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
@@ -75,87 +76,70 @@ async function generateContentWithFallback(
   // Deduplicate candidate models while preserving order
   const models = Array.from(new Set(candidateModels));
 
-  // Thử toàn bộ chuỗi model tối đa 2 vòng: vòng 1 ngay lập tức, vòng 2 sau khi
-  // nghỉ dài hơn — vì lỗi 503 (quá tải) thường chỉ kéo dài vài giây đến vài chục giây,
-  // nên đợi rồi thử lại cả chuỗi có cơ hội thành công cao hơn nhiều so với báo lỗi ngay.
-  const maxChainRounds = 2;
   let lastError: any = null;
 
-  for (let round = 0; round < maxChainRounds; round++) {
-    if (round > 0) {
-      const chainBackoffMs = 4000 + Math.floor(Math.random() * 1500);
-      console.log(`[Gemini API] Tất cả model đều bận ở vòng ${round}. Đợi ${Math.round(chainBackoffMs / 1000)}s rồi thử lại toàn bộ chuỗi model...`);
-      await new Promise((resolve) => setTimeout(resolve, chainBackoffMs));
-    }
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
 
-    for (let i = 0; i < models.length; i++) {
-      const model = models[i];
+    // For 503 (high demand spikes), don't hammer the same busy model twice — jump directly to fallback model
+    const maxAttempts = 2;
 
-      // Với lỗi 503 (quá tải đột biến), không dồn ép cùng 1 model — chuyển thẳng sang model dự phòng.
-      // Với lỗi 429 (rate limit), thử lại chính model đó 1 lần sau khi nghỉ ngắn, vì thường tự hồi phục nhanh.
-      const maxAttempts = 2;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config,
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = err?.message || String(err);
+        const is503 =
+          err?.status === 503 ||
+          errMsg.includes('503') ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('UNAVAILABLE') ||
+          errMsg.includes('overloaded');
+        const is429 =
+          err?.status === 429 ||
+          errMsg.includes('429') ||
+          errMsg.includes('Resource has been exhausted') ||
+          errMsg.includes('quota');
 
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const response = await ai.models.generateContent({
-            model,
-            contents: params.contents,
-            config: params.config,
-          });
-          if (round > 0 || i > 0) {
-            console.log(`[Gemini API] Thành công với model ${model} (vòng ${round + 1}, model thứ ${i + 1}).`);
-          }
-          return response;
-        } catch (err: any) {
-          lastError = err;
-          const errMsg = err?.message || String(err);
-          const is503 =
-            err?.status === 503 ||
-            errMsg.includes('503') ||
-            errMsg.includes('high demand') ||
-            errMsg.includes('UNAVAILABLE') ||
-            errMsg.includes('overloaded');
-          const is429 =
-            err?.status === 429 ||
-            errMsg.includes('429') ||
-            errMsg.includes('Resource has been exhausted') ||
-            errMsg.includes('quota');
-
-          if (is503) {
-            console.log(`[Gemini API] Model ${model} đang quá tải (503). Chuyển sang model dự phòng...`);
-            break;
-          }
-
-          if (is429) {
-            console.log(`[Gemini API] Model ${model} đạt giới hạn tốc độ (429).`);
-            if (attempt === 0) {
-              const backoffMs = 1200 + Math.floor(Math.random() * 500);
-              await new Promise((resolve) => setTimeout(resolve, backoffMs));
-              continue;
-            }
-            break;
-          }
-
-          console.log(`[Gemini API] Lỗi ở model ${model} (lần thử ${attempt + 1}): ${errMsg.slice(0, 150)}`);
+        if (is503) {
+          console.log(`[Gemini API] Model ${model} is currently experiencing high demand (503). Smoothly switching to alternative model...`);
+          // Break immediately out of attempt loop to try next model in candidate list
           break;
         }
-      }
 
-      if (i < models.length - 1) {
-        const nextModel = models[i + 1];
-        console.log(`[Gemini API] Chuyển hướng sang model dự phòng: ${nextModel}...`);
-        // Backoff tăng dần theo từng model đã thử, để nhường thời gian cho tải giảm bớt
-        const interModelBackoffMs = 800 * (i + 1) + Math.floor(Math.random() * 400);
-        await new Promise((resolve) => setTimeout(resolve, interModelBackoffMs));
+        if (is429) {
+          console.log(`[Gemini API] Model ${model} reached rate limit (429).`);
+          if (attempt === 0) {
+            const backoffMs = 1200 + Math.floor(Math.random() * 500);
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            continue;
+          }
+          break;
+        }
+
+        console.log(`[Gemini API] Request on ${model} (attempt ${attempt + 1}): ${errMsg.slice(0, 150)}`);
+        break;
       }
+    }
+
+    if (i < models.length - 1) {
+      const nextModel = models[i + 1];
+      console.log(`[Gemini API] Routing request to fallback model: ${nextModel}...`);
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
 
-  // Format error politely if all models failed sau cả 2 vòng thử
+  // Format error politely if all models failed
   const finalMsg = lastError?.message || 'Lỗi kết nối Gemini AI';
   if (finalMsg.includes('503') || finalMsg.includes('high demand') || finalMsg.includes('UNAVAILABLE')) {
     throw new Error(
-      'Hệ thống AI đang có lượng truy cập cao đột biến. Đã thử lại nhiều lần nhưng chưa thành công — vui lòng thử lại sau khoảng 1 phút.'
+      'Hệ thống AI đang có lượng truy cập cao đột biến (503). Vui lòng thử lại sau vài giây.'
     );
   } else if (finalMsg.includes('429') || finalMsg.includes('quota') || finalMsg.includes('Resource has been exhausted')) {
     throw new Error('Đã đạt giới hạn yêu cầu tạm thời (429). Vui lòng đợi 3 - 5 giây và thử lại.');
@@ -164,7 +148,7 @@ async function generateContentWithFallback(
   throw lastError;
 }
 
-export async function createApp() {
+async function startServer() {
   const app = express();
   const PORT = 3000;
 
@@ -1931,18 +1915,13 @@ Yêu cầu xây dựng:
 
       for (const model of ttsModels) {
         try {
-                    const response = await ai.models.generateContent({
+          const response = await ai.models.generateContent({
             model,
-            contents: [{
-              parts: [{
-                text: `Đọc đoạn văn tiếng Việt sau bằng giọng miền Bắc chuẩn, tự nhiên, phát âm rõ ràng, đúng dấu thanh điệu: ${text}`,
-              }],
-            }],
+            contents: [{ parts: [{ text }] }],
             config: {
               responseModalities: ['AUDIO'],
               speechConfig: {
                 voiceConfig: { prebuiltVoiceConfig: { voiceName } },
-                languageCode: 'vi-VN',
               },
             },
           } as any);
@@ -2456,94 +2435,7 @@ Hãy đánh giá và trả về:
       res.status(500).json({ error: error.message || 'Lỗi kiểm tra chất lượng' });
     }
   });
-  // 9h-bis. Tạo ảnh chân dung THAM CHIẾU cho 1 nhân vật — dùng làm ảnh gốc để giữ
-// nhất quán ngoại hình xuyên suốt mọi khung hình có nhân vật đó.
-app.post('/api/comic/generate-character-reference', async (req, res) => {
-  try {
-    const ai = getGenAI();
-    const { character } = req.body as {
-      character?: { name: string; age?: number; gender?: string; appearance: string; outfit: string };
-    };
-    if (!character?.appearance || !character?.outfit) {
-      return res.status(400).json({ error: 'Thiếu mô tả ngoại hình/trang phục nhân vật.' });
-    }
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not configured' });
-    }
 
-    const prompt = `Vẽ chân dung nhân vật phong cách hoạt hình 3D (như phim Pixar/Disney), nền studio xám nhạt đơn giản, ánh sáng mềm mại đều, tư thế đứng thẳng nhìn thẳng camera, thấy rõ toàn thân từ đầu đến chân, thể hiện rõ ràng trang phục và đặc điểm ngoại hình. Đây là ẢNH THAM CHIẾU NHÂN VẬT dùng để giữ nhất quán xuyên suốt truyện tranh, không phải một cảnh truyện cụ thể — không thêm bối cảnh, đạo cụ hay nhân vật khác.
-Nhân vật: ${character.name}, ${character.age ? character.age + ' tuổi, ' : ''}${character.gender === 'female' ? 'nữ' : 'nam'}.
-Ngoại hình: ${character.appearance}.
-Trang phục: ${character.outfit}.`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-image',
-      contents: prompt,
-      config: { responseModalities: ['TEXT', 'IMAGE'] },
-    } as any);
-
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find((p: any) => p.inlineData);
-    if (!imagePart) {
-      return res.status(500).json({ error: 'AI không trả về ảnh tham chiếu. Vui lòng thử lại.' });
-    }
-
-    res.json({
-      imageBase64: imagePart.inlineData?.data,
-      mimeType: imagePart.inlineData?.mimeType || 'image/png',
-    });
-  } catch (err: any) {
-    console.error('generate-character-reference error:', err);
-    res.status(500).json({ error: err.message || 'Lỗi không xác định khi tạo ảnh tham chiếu nhân vật.' });
-  }
-});
- app.post('/api/comic/generate-frame-image', async (req, res) => {
-  try {
-    const ai = getGenAI();
-    const { prompt = '', referenceImages = [] } = req.body as {
-      prompt?: string;
-      referenceImages?: Array<{ imageBase64: string; mimeType: string; characterName?: string }>;
-    };
-    if (!prompt.trim()) return res.status(400).json({ error: 'Thiếu mô tả (prompt) để tạo ảnh.' });
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not configured' });
-    }
-
-    const consistencyNote = referenceImages.length
-      ? ` Dùng CHÍNH XÁC các ảnh tham chiếu nhân vật đính kèm để giữ đúng khuôn mặt, trang phục, tỉ lệ cơ thể của từng nhân vật — không tự sáng tạo lại ngoại hình khác đi.`
-      : '';
-    const fullPrompt = `Vẽ minh họa phong cách hoạt hình 3D (như phim Pixar/Disney), ánh sáng mềm mại, chất liệu render 3D chân thực, màu sắc tươi sáng, phù hợp cho học sinh THCS Việt Nam.${consistencyNote} ${prompt}`;
-
-    // Ghép prompt text + các ảnh tham chiếu nhân vật (nếu có) thành nhiều "parts"
-    // để Gemini nhìn thấy cả mô tả lẫn ảnh gốc khi vẽ khung mới.
-    const contentParts: any[] = [{ text: fullPrompt }];
-    referenceImages.slice(0, 6).forEach((ref) => {
-      if (ref?.imageBase64) {
-        contentParts.push({ inlineData: { data: ref.imageBase64, mimeType: ref.mimeType || 'image/png' } });
-      }
-    });
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-image',
-      contents: [{ role: 'user', parts: contentParts }],
-      config: { responseModalities: ['TEXT', 'IMAGE'] },
-    } as any);
-
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find((p: any) => p.inlineData);
-    if (!imagePart) {
-      return res.status(500).json({ error: 'AI không trả về ảnh. Vui lòng thử lại.' });
-    }
-
-    res.json({
-      imageBase64: imagePart.inlineData?.data,
-      mimeType: imagePart.inlineData?.mimeType || 'image/png',
-    });
-  } catch (err: any) {
-    console.error('generate-frame-image error:', err);
-    res.status(500).json({ error: err.message || 'Lỗi không xác định khi tạo ảnh AI.' });
-  }
-}); 
   // 9i. AI Video (Veo): bắt đầu tạo video chuyển động thật từ ảnh khung hình
   // — chỉ dùng cho những khung giáo viên đánh dấu "cần chuyển động thực sự",
   // các khung còn lại vẫn dùng hiệu ứng Ken Burns (zoom/pan) khi xuất video.
@@ -2553,9 +2445,9 @@ Trang phục: ${character.outfit}.`;
       if (!imageBase64) return res.status(400).json({ error: 'Thiếu ảnh khung hình để tạo video.' });
 
       const cleanBase64 = imageBase64.includes(';base64,') ? imageBase64.split(';base64,')[1] : imageBase64;
-            const ai = getGenAI();
-      const VEO_MODEL = (process.env.VEO_MODEL || 'veo-3.1-fast-generate-preview').trim();
-      const veoModels = [...new Set([VEO_MODEL, 'veo-3.1-fast-generate-preview', 'veo-3.1-generate-preview'])];
+      const ai = getGenAI();
+      const veoModels = ['veo-3.1-generate-preview', 'veo-3.0-generate-001'];
+
       let operation: any = null;
       let lastError: any = null;
       let usedModel = '';
@@ -2574,11 +2466,9 @@ Trang phục: ${character.outfit}.`;
           break;
         } catch (err: any) {
           lastError = err;
-          console.warn(`Veo model ${model} lỗi:`, err?.message);
-          // Chỉ thử model kế tiếp khi model này không tồn tại; lỗi key/quota/prompt thì đổi model cũng vô ích
-          if (!/NOT_FOUND|not found|404/i.test(String(err?.message || ''))) break;
         }
       }
+
       if (!operation) throw lastError || new Error('Không thể khởi tạo AI Video lúc này.');
       res.json({ success: true, operationName: operation.name, model: usedModel });
     } catch (error: any) {
@@ -2615,10 +2505,15 @@ Trang phục: ${character.outfit}.`;
       await (ai as any).files.download({ file: generated.video, downloadPath: tmpPath });
       const videoBuffer = fs.readFileSync(tmpPath);
 
+      // Upload lên Firebase Storage, trả về URL thay vì base64 — tránh phình state/Firestore
+      // (video vài MB mỗi khung, nhân với 16-24 khung sẽ vượt giới hạn 1MB/document rất nhanh).
+      const destPath = `comic-videos/${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`;
+      const videoUrl = await uploadBufferToStorage(videoBuffer, destPath, 'video/mp4');
+
       res.json({
         success: true,
         done: true,
-        videoBase64: videoBuffer.toString('base64'),
+        videoUrl,
         mimeType: 'video/mp4',
       });
     } catch (error: any) {
@@ -2629,37 +2524,27 @@ Trang phục: ${character.outfit}.`;
     }
   });
 
-  // Trên Vercel (biến VERCEL luôn = '1'), KHÔNG chạy Vite/static/listen —
-  // Vercel tự lo phần file tĩnh, ta chỉ cần trả về app để làm serverless function.
-  if (!process.env.VERCEL) {
-    // Vite middleware setup
-    if (process.env.NODE_ENV !== 'production') {
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
-    } else {
-      const distPath = path.join(process.cwd(), 'dist');
-      app.use(express.static(distPath));
-      app.get('*', (req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
-      });
-    }
-
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+  // Vite middleware setup
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  return app;
-}
-
-// Chỉ tự chạy server khi thực thi trực tiếp ở local (npm run dev),
-// không chạy khi Vercel import file này làm serverless function.
-if (!process.env.VERCEL) {
-  createApp().catch((err) => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
+
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});

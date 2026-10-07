@@ -239,24 +239,13 @@ export async function exportComicVideo(
       // ---- Dùng clip AI Video (Veo) thật cho khung được giáo viên đánh dấu ----
       await new Promise<void>((resolve, reject) => {
         const videoEl = document.createElement('video');
-        // Video giờ lưu trên Firebase Storage (URL), không còn base64 — cần crossOrigin
-        // để canvas không bị "tainted" khi vẽ video cross-origin lên canvas.captureStream().
-        // YÊU CẦU: bucket Storage phải bật CORS cho origin của app (xem cors.json đi kèm).
-        videoEl.crossOrigin = 'anonymous';
         videoEl.src = asset.frame.aiVideoClip!.videoUrl;
+        videoEl.crossOrigin = 'anonymous'; // cần để canvas.captureStream không bị "tainted" bởi video cross-origin
         videoEl.muted = true;
         videoEl.loop = true;
         (videoEl as any).playsInline = true;
-        videoEl.onerror = () =>
-          reject(
-            new Error(
-              `Không thể phát AI Video cho khung ${asset.frame.frameId}. Nếu lỗi CORS, kiểm tra cấu hình CORS của Firebase Storage bucket.`
-            )
-          );
-        let started = false;
+        videoEl.onerror = () => reject(new Error(`Không thể phát AI Video cho khung ${asset.frame.frameId}.`));
         videoEl.oncanplay = () => {
-          if (started) return; // videoEl.loop=true có thể bắn lại 'canplay' mỗi vòng lặp
-          started = true;
           videoEl.play().catch(reject);
           const startTime = performance.now();
           const drawTick = () => {
