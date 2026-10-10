@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { uploadBufferToStorage } from './firebaseAdmin';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
@@ -2505,15 +2504,12 @@ Hãy đánh giá và trả về:
       await (ai as any).files.download({ file: generated.video, downloadPath: tmpPath });
       const videoBuffer = fs.readFileSync(tmpPath);
 
-      // Upload lên Firebase Storage, trả về URL thay vì base64 — tránh phình state/Firestore
-      // (video vài MB mỗi khung, nhân với 16-24 khung sẽ vượt giới hạn 1MB/document rất nhanh).
-      const destPath = `comic-videos/${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`;
-      const videoUrl = await uploadBufferToStorage(videoBuffer, destPath, 'video/mp4');
-
+      // Trả base64 về cho client — chính client (comicStorage.ts, dùng firebase/storage
+      // phía trình duyệt) sẽ upload lên Firebase Storage và chỉ giữ lại URL trong state.
       res.json({
         success: true,
         done: true,
-        videoUrl,
+        videoBase64: videoBuffer.toString('base64'),
         mimeType: 'video/mp4',
       });
     } catch (error: any) {

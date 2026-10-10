@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ComicScene, ComicFrame, CharacterProfile, ComicArtStyle, LessonKnowledgeProfile } from '../../types/comicLesson';
 import { VisualIllustrationRenderer } from './VisualIllustrationRenderer';
 import { toPng } from 'html-to-image';
+import { uploadFrameVideo } from './comicStorage';
 import {
   Palette,
   Sparkles,
@@ -32,6 +33,7 @@ interface Step6ComicArtStudioProps {
   onNextStep: () => void;
   onPrevStep: () => void;
   knowledgeProfile?: LessonKnowledgeProfile;
+  projectId: string; // dùng làm đường dẫn lưu video trên Firebase Storage
 }
 
 export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
@@ -43,6 +45,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   onNextStep,
   onPrevStep,
   knowledgeProfile,
+  projectId,
 }) => {
   // Extract all frames
   const allFrames: Array<{ scene: ComicScene; frame: ComicFrame }> = [];
@@ -62,7 +65,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   const frameStageRef = useRef<HTMLDivElement | null>(null);
-  const [aiVideoStatus, setAiVideoStatus] = useState<'idle' | 'capturing' | 'submitting' | 'polling' | 'error'>('idle');
+  const [aiVideoStatus, setAiVideoStatus] = useState<'idle' | 'capturing' | 'submitting' | 'polling' | 'uploading' | 'error'>('idle');
   const [aiVideoError, setAiVideoError] = useState<string | null>(null);
 
   // Luôn giữ bản mới nhất của `scenes` trong ref — vòng lặp tạo video hàng loạt chạy
@@ -146,10 +149,16 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
         if (!statusRes.ok) throw new Error(statusData.error || 'Lỗi kiểm tra trạng thái AI Video.');
         if (statusData.done) {
           if (statusData.error) throw new Error(statusData.error);
+
+          // Server trả base64 → upload lên Firebase Storage (comicStorage.ts) và chỉ giữ URL
+          setAiVideoStatus('uploading');
+          const videoMime = statusData.mimeType || 'video/mp4';
+          const videoUrl = await uploadFrameVideo(projectId, targetFrame.frameId, statusData.videoBase64, videoMime);
+
           updateFrameInScenes(targetScene.sceneId, targetFrame.frameId, {
             aiVideoClip: {
-              videoUrl: statusData.videoUrl,
-              mimeType: statusData.mimeType || 'video/mp4',
+              videoUrl,
+              mimeType: videoMime,
               prompt: targetFrame.promptDetails?.videoPrompt || '',
               generatedAt: new Date().toISOString(),
             },
@@ -477,6 +486,7 @@ export const Step6ComicArtStudio: React.FC<Step6ComicArtStudioProps> = ({
                   {aiVideoStatus === 'capturing' && 'Đang chụp khung...'}
                   {aiVideoStatus === 'submitting' && 'Đang gửi AI Video...'}
                   {aiVideoStatus === 'polling' && 'AI đang dựng video (~1-3 phút)...'}
+                  {aiVideoStatus === 'uploading' && 'Đang lưu video lên Storage...'}
                   {(aiVideoStatus === 'idle' || aiVideoStatus === 'error') &&
                     (currentFrame.aiVideoClip ? 'Tạo Lại Video Này' : 'AI Sinh Video Cho Khung Này')}
                 </button>

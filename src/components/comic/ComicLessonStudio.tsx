@@ -646,6 +646,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             onNextStep={() => setCurrentStep(7)}
             onPrevStep={() => setCurrentStep(5)}
             knowledgeProfile={project.knowledgeProfile}
+            projectId={project.id}
           />
         )}
 
