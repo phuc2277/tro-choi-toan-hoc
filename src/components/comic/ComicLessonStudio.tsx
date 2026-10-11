@@ -7,7 +7,8 @@ import {
   ComicScene,
   ComicArtStyle,
 } from '../../types/comicLesson';
-import { DEFAULT_COMIC_PROJECT, SAMPLE_PHOTOSYNTHESIS_PROJECT } from '../../data/defaultComicLessons';
+import { DEFAULT_COMIC_PROJECT, SAMPLE_PHOTOSYNTHESIS_PROJECT, DEFAULT_CHARACTERS } from '../../data/defaultComicLessons';
+import { DON_THUC_COMIC_PROJECT } from '../../data/donThucComicLesson';
 import { useTeacherAuth } from './useTeacherAuth';
 import {
   createCloudProject,
@@ -52,26 +53,113 @@ import {
   UserPlus,
 } from 'lucide-react';
 
-interface ComicLessonStudioProps {
-  onBackToMain?: () => void;
+// Thông tin bài học đang được chọn ở trang bài học (LessonPage truyền xuống)
+export interface ComicLessonContext {
+  subject: string;
+  grade: string;
+  chapter?: string;
+  lessonTitle: string;
+  sourceText?: string;
 }
 
-export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMain }) => {
+interface ComicLessonStudioProps {
+  onBackToMain?: () => void;
+  initialLessonContext?: ComicLessonContext;
+}
+
+const LEGACY_CACHE_KEY = 'cached_comic_lesson_project';
+const LESSON_OPTION = '__current_lesson__';
+const cacheKeyFor = (projectId: string) => `${LEGACY_CACHE_KEY}:${projectId}`;
+
+const slugify = (text: string) =>
+  text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+
+// Mỗi bài học (môn + lớp + tên bài) có 1 id dự án riêng, ổn định giữa các lần mở
+const makeLessonProjectId = (ctx: ComicLessonContext) =>
+  `proj-lesson-${slugify(ctx.subject)}-${slugify(ctx.grade)}-${slugify(ctx.lessonTitle)}`;
+
+const readCachedProject = (key: string): ComicLessonProject | null => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.id ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+// Dự án mới cho đúng bài học đang chọn. Bài "Đơn thức" (Toán 8) dùng bộ mẫu có sẵn;
+// các bài khác bắt đầu trống (chưa có cảnh) để AI sinh nội dung đúng bài đó.
+const buildProjectForLesson = (ctx: ComicLessonContext): ComicLessonProject => {
+  const id = makeLessonProjectId(ctx);
+  const isDonThuc = ctx.lessonTitle.toLowerCase().includes('đơn thức') && /8/.test(ctx.grade);
+  if (isDonThuc) {
+    return { ...DON_THUC_COMIC_PROJECT, id };
+  }
+  const now = new Date().toISOString();
+  return {
+    id,
+    title: `Truyện Tranh: ${ctx.lessonTitle}`,
+    description: `Học ${ctx.lessonTitle} qua truyện tranh/video sinh động.`,
+    subject: ctx.subject,
+    grade: ctx.grade,
+    style: 'modern-comic',
+    humorLevel: 'natural',
+    currentStep: 1,
+    knowledgeProfile: {
+      subject: ctx.subject,
+      grade: ctx.grade,
+      chapter: ctx.chapter || '',
+      lessonTitle: ctx.lessonTitle,
+      objectives: [],
+      coreKnowledge: [],
+      concepts: [],
+      formulas: [],
+      examples: [],
+      problemSolvingProcess: [],
+      importantDiagrams: [],
+      keyTerms: [],
+      commonMisconceptions: [],
+      teacherNotes: '',
+    },
+    storyKernel: {
+      problemStatement: '',
+      protagonistNames: [],
+      goal: '',
+      obstacles: '',
+      knowledgeToDiscover: '',
+      climax: '',
+      resolution: '',
+      knowledgeConclusion: '',
+    },
+    characters: DEFAULT_CHARACTERS,
+    scenes: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMain, initialLessonContext }) => {
   const teacherAuth = useTeacherAuth();
 
   // Current active project
   const [project, setProject] = useState<ComicLessonProject>(() => {
-    try {
-      const cached = localStorage.getItem('cached_comic_lesson_project');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.id) return parsed;
-      }
-    } catch {
-      // fallback
+    // Có bài học được chọn → mở bản nháp riêng của bài đó (hoặc tạo mới), KHÔNG dùng bản cũ của bài khác
+    if (initialLessonContext) {
+      return readCachedProject(cacheKeyFor(makeLessonProjectId(initialLessonContext))) || buildProjectForLesson(initialLessonContext);
     }
-    return DEFAULT_COMIC_PROJECT;
+    return readCachedProject(LEGACY_CACHE_KEY) || DEFAULT_COMIC_PROJECT;
   });
+  // Chỉ tự đồng bộ lên đám mây sau khi giáo viên thật sự chỉnh sửa (tránh tạo dự án trống cho mỗi bài vừa mở)
+  const hasEditedRef = useRef(false);
 
   // Current active step: 1 through 8
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -116,7 +204,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
   // Nếu dự án CHƯA từng tồn tại trên đám mây → tạo mới (gán quyền sở hữu cho tôi).
   // Nếu ĐÃ tồn tại → chỉ cập nhật nội dung, không đụng tới ownerUid/collaboratorEmails.
   useEffect(() => {
-    if (!teacherAuth.user) return;
+    if (!teacherAuth.user || !hasEditedRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setSyncStatus('saving');
     saveTimerRef.current = setTimeout(async () => {
@@ -140,9 +228,11 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
 
   // Sync with localStorage
   const saveProject = (updated: ComicLessonProject) => {
+    hasEditedRef.current = true;
     setProject(updated);
     try {
-      localStorage.setItem('cached_comic_lesson_project', JSON.stringify(updated));
+      localStorage.setItem(cacheKeyFor(updated.id), JSON.stringify(updated));
+      if (!initialLessonContext) localStorage.setItem(LEGACY_CACHE_KEY, JSON.stringify(updated));
     } catch (e) {
       console.error('Failed to cache comic project:', e);
     }
@@ -193,7 +283,9 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
 
   // Switch between built-in sample projects
   const handleSwitchProject = (projId: string) => {
-    if (projId === 'proj-thales-math8') {
+    if (projId === LESSON_OPTION && initialLessonContext) {
+      saveProject(readCachedProject(cacheKeyFor(makeLessonProjectId(initialLessonContext))) || buildProjectForLesson(initialLessonContext));
+    } else if (projId === 'proj-thales-math8') {
       saveProject(DEFAULT_COMIC_PROJECT);
     } else if (projId === 'proj-photosynthesis-science7') {
       saveProject(SAMPLE_PHOTOSYNTHESIS_PROJECT);
@@ -290,6 +382,33 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
     setShowProjectPicker(false);
   };
 
+  const hasScenes = project.scenes.length > 0;
+  const hasFrames = project.scenes.some((sc) => sc.frames.length > 0);
+
+  // Bước 5-8 cần có cảnh/khung hình — nếu bài học mới chưa có thì hướng dẫn quay lại bước tạo
+  const renderEmptyState = (step: number) => {
+    const needFrames = step === 6 || step === 8;
+    const backStep = needFrames && hasScenes ? 5 : 4;
+    return (
+      <div className="max-w-xl mx-auto text-center p-8 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
+        <p className="text-sm font-black text-white">
+          {backStep === 4 ? 'Bài học này chưa có kịch bản (cảnh).' : 'Bài học này chưa có khung hình (storyboard).'}
+        </p>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          {backStep === 4
+            ? 'Hoàn tất Bước 1–3, sau đó vào Bước 4 bấm "AI Sinh Toàn Bộ Kịch Bản 8 Cảnh".'
+            : 'Vào Bước 5, bấm "AI Tạo Storyboard" trên từng cảnh để AI chia cảnh thành các khung hình.'}
+        </p>
+        <button
+          onClick={() => setCurrentStep(backStep)}
+          className="px-4 py-2 rounded-xl bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 text-xs font-bold cursor-pointer"
+        >
+          Đến Bước {backStep}
+        </button>
+      </div>
+    );
+  };
+
   const stepsConfig = [
     { num: 1, label: 'Hồ Sơ Kiến Thức', icon: BookOpen, desc: 'Bóc tách GDPT 2018' },
     { num: 2, label: 'Hạt Nhân Truyện', icon: Compass, desc: 'Vấn đề trung tâm' },
@@ -343,10 +462,26 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             Dự Án Mẫu:
           </span>
           <select
-            value={project.id}
+            value={
+              initialLessonContext && project.id === makeLessonProjectId(initialLessonContext)
+                ? LESSON_OPTION
+                : project.id === 'proj-thales-math8' || project.id === 'proj-photosynthesis-science7'
+                ? project.id
+                : ''
+            }
             onChange={(e) => handleSwitchProject(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-cyan-300 font-bold focus:outline-none"
           >
+            {initialLessonContext && (
+              <option value={LESSON_OPTION}>📘 {initialLessonContext.lessonTitle} ({initialLessonContext.grade}) — bài đang chọn</option>
+            )}
+            {!(initialLessonContext && project.id === makeLessonProjectId(initialLessonContext)) &&
+              project.id !== 'proj-thales-math8' &&
+              project.id !== 'proj-photosynthesis-science7' && (
+                <option value="" disabled>
+                  Dự án đã lưu: {project.title}
+                </option>
+              )}
             <option value="proj-thales-math8">📐 Toán 8: Định lý Thales (Đo chiều cao cây)</option>
             <option value="proj-photosynthesis-science7">🌱 KHTN 7: Quang hợp ở thực vật</option>
           </select>
@@ -625,7 +760,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           />
         )}
 
-        {currentStep === 5 && (
+        {currentStep === 5 && !hasScenes && renderEmptyState(5)}
+        {currentStep === 5 && hasScenes && (
           <Step5StoryboardReview
             scenes={project.scenes}
             characters={project.characters}
@@ -636,7 +772,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           />
         )}
 
-        {currentStep === 6 && (
+        {currentStep === 6 && !hasFrames && renderEmptyState(6)}
+        {currentStep === 6 && hasFrames && (
           <Step6ComicArtStudio
             scenes={project.scenes}
             characters={project.characters}
@@ -650,7 +787,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           />
         )}
 
-        {currentStep === 7 && (
+        {currentStep === 7 && !hasScenes && renderEmptyState(7)}
+        {currentStep === 7 && hasScenes && (
           <Step7AudioDirector
             scenes={project.scenes}
             characters={project.characters}
@@ -660,7 +798,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
           />
         )}
 
-        {currentStep === 8 && (
+        {currentStep === 8 && !hasFrames && renderEmptyState(8)}
+        {currentStep === 8 && hasFrames && (
           <Step8VideoAndReader
             project={project}
             onUpdateProject={saveProject}
