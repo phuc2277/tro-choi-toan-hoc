@@ -107,8 +107,8 @@ const buildProjectForLesson = (ctx: ComicLessonContext): ComicLessonProject => {
   const now = new Date().toISOString();
   return {
     id,
-    title: `Truyện Tranh: ${ctx.lessonTitle}`,
-    description: `Học ${ctx.lessonTitle} qua truyện tranh/video sinh động.`,
+    title: `Video: ${ctx.lessonTitle}`,
+    description: `Học ${ctx.lessonTitle} qua video AI sinh động.`,
     subject: ctx.subject,
     grade: ctx.grade,
     style: 'modern-comic',
@@ -243,8 +243,8 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
     saveProject({
       ...project,
       knowledgeProfile: updatedProfile,
-      title: `Truyện Tranh: ${updatedProfile.lessonTitle}`,
-      description: `Học bài học ${updatedProfile.lessonTitle} qua lăng kính truyện tranh sinh động.`,
+      title: `Video: ${updatedProfile.lessonTitle}`,
+      description: `Học bài học ${updatedProfile.lessonTitle} qua video AI sinh động.`,
     });
   };
 
@@ -373,7 +373,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
     const fresh: ComicLessonProject = {
       ...DEFAULT_COMIC_PROJECT,
       id: `proj-${Date.now()}`,
-      title: 'Dự Án Truyện Tranh Mới',
+      title: 'Dự Án Video Mới',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -417,7 +417,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
     { num: 5, label: 'Duyệt Storyboard', icon: CheckSquare, desc: 'Bảng phê duyệt Frame' },
     { num: 6, label: 'Tạo Video AI', icon: Video, desc: 'Veo Studio & KaTeX' },
     { num: 7, label: 'Audio & Lời Bình', icon: Mic, desc: 'Hội thoại & SFX' },
-    { num: 8, label: 'Video & Đọc Truyện', icon: Video, desc: 'Chế độ chiếu & Tự học' },
+    { num: 8, label: 'Xem & Xuất Video', icon: Video, desc: 'Trình chiếu, .webm, .pptx' },
   ];
 
   return (
@@ -443,7 +443,7 @@ export const ComicLessonStudio: React.FC<ComicLessonStudioProps> = ({ onBackToMa
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-sm font-black text-white tracking-wide">
-                  AI TRUYỆN TRANH BÀI HỌC
+                  AI TẠO VIDEO BÀI HỌC
                 </h1>
                 <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-black border border-cyan-500/30 uppercase">
                   GDPT 2018 THCS

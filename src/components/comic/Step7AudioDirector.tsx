@@ -547,7 +547,7 @@ export const Step7AudioDirector: React.FC<Step7AudioDirectorProps> = ({
           onClick={onNextStep}
           className="px-6 py-3 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-black text-sm shadow-xl shadow-teal-900/30 transition-all flex items-center gap-2 cursor-pointer"
         >
-          <span>Tiến Hành Hoàn Tất & Xem Video / Đọc Truyện (Bước 8)</span>
+          <span>Hoàn Tất & Xem Video (Bước 8)</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

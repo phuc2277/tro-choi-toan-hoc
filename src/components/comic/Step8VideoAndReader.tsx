@@ -212,9 +212,9 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-extrabold text-xs uppercase tracking-wider border border-cyan-400/40">
-              BƯỚC 8 — HOÀN TẤT & XUẤT BẢN
+              BƯỚC 8 — XEM & XUẤT VIDEO
             </span>
-            <span className="text-xs text-slate-400 font-medium">Lớp Học & Tự Học GDPT</span>
+            <span className="text-xs text-slate-400 font-medium">Trình chiếu lớp học GDPT</span>
           </div>
           <h2 className="text-xl font-black text-white mt-1">
             {project.title}
@@ -224,38 +224,6 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
           </p>
         </div>
 
-        {/* View Mode Switcher: Comic Reader vs Video Mode */}
-        <div className="flex items-center bg-slate-900 p-1.5 rounded-2xl border border-slate-700 shadow-xl shrink-0">
-          <button
-            onClick={() => {
-              setViewMode('video');
-              setIsPlaying(true);
-            }}
-            className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
-              viewMode === 'video'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-900/40'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Video className="w-4 h-4" />
-            <span>Chế Độ Video (Trình Chiếu Lớp)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setViewMode('reader');
-              setIsPlaying(false);
-            }}
-            className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
-              viewMode === 'reader'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-900/40'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>Chế Độ Comic Reader (Tự Học)</span>
-          </button>
-        </div>
       </div>
 
       {/* Main Theater / Stage */}
@@ -273,12 +241,26 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
                   : ''
               }`}
             >
-              <VisualIllustrationRenderer
-                frame={currentFrame}
-                characters={project.characters}
-                zoomLevel={1.05}
-                showOverlayLayer={true}
-              />
+              {currentFrame.aiVideoClip && !isExporting && !isExportingPptx ? (
+                // Khung đã có video AI → phát video thật (khi xuất video/PPTX sẽ tự đổi sang ảnh tĩnh để chụp)
+                <video
+                  key={currentFrame.aiVideoClip.generatedAt}
+                  src={currentFrame.aiVideoClip.videoUrl}
+                  crossOrigin="anonymous"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  className="w-full aspect-[16/9] rounded-2xl bg-black"
+                />
+              ) : (
+                <VisualIllustrationRenderer
+                  frame={currentFrame}
+                  characters={project.characters}
+                  zoomLevel={1.05}
+                  showOverlayLayer={true}
+                />
+              )}
             </div>
 
             {/* Bottom Floating Control Bar (Video Player & Reader Navigation) */}
@@ -432,7 +414,7 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
               <button
                 onClick={handleExportJSON}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Tải về file dự án truyện tranh JSON"
+                title="Tải về file dự án video JSON"
               >
                 <Download className="w-4 h-4" />
                 <span>Xuất File Dự Án</span>
@@ -590,7 +572,7 @@ export const Step8VideoAndReader: React.FC<Step8VideoAndReaderProps> = ({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => alert('Dự án truyện tranh bài học đã sẵn sàng xuất bản lên thư viện số nhà trường!')}
+            onClick={() => alert('Dự án video bài học đã sẵn sàng xuất bản lên thư viện số nhà trường!')}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm shadow-xl shadow-emerald-900/30 transition-all flex items-center gap-2 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />

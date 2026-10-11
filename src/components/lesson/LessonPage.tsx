@@ -478,7 +478,7 @@ export const LessonPage: React.FC = () => {
       .map((l) => l.chapter);
     return Array.from(new Set(chapters));
   }, [lessons, currentSubject.id, currentGrade.level]);
-// Chuyển nội dung SGK/giáo án đã có sẵn của bài học hiện tại thành text nguồn cho AI Truyện Tranh
+// Chuyển nội dung SGK/giáo án đã có sẵn của bài học hiện tại thành text nguồn cho AI Tạo Video
 function extractLessonSourceText(lesson?: Lesson): string {
   if (!lesson) return '';
   const parts: string[] = [];
@@ -833,7 +833,7 @@ function extractLessonSourceText(lesson?: Lesson): string {
         </div>
       ) : viewMode === 'comicLesson' ? (
         /* ======================================================== */
-        /* AI TRUYỆN TRANH BÀI HỌC (8-STEP GDPT 2018 STUDIO)      */
+        /* AI TẠO VIDEO BÀI HỌC (8-STEP GDPT 2018 STUDIO)         */
         /* ======================================================== */
        <div className="flex-1 flex flex-col">
   <ComicLessonStudio
@@ -1091,10 +1091,10 @@ function extractLessonSourceText(lesson?: Lesson): string {
                         setActiveSection('comicLesson');
                       }}
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white text-xs font-black transition shadow-[0_0_15px_rgba(245,158,11,0.3)] cursor-pointer"
-                      title="Mở studio AI Truyện Tranh Bài Học 8 bước chuẩn GDPT 2018"
+                      title="Mở studio AI Tạo Video Bài Học 8 bước chuẩn GDPT 2018"
                     >
                       <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                      <span>✨ AI Truyện Tranh Bài Học</span>
+                      <span>✨ AI Tạo Video Bài Học</span>
                     </button>
 
                     <button
@@ -1106,7 +1106,7 @@ function extractLessonSourceText(lesson?: Lesson): string {
                   </div>
                 </div>
 
-                {/* Main 5 Tabs Bar: 1. KHO TÀI LIỆU, 2. NGÂN HÀNG CÂU HỎI, 3. TẠO ĐỀ, 4. TRÒ CHƠI, 5. AI TRUYỆN TRANH */}
+                {/* Main 5 Tabs Bar: 1. KHO TÀI LIỆU, 2. NGÂN HÀNG CÂU HỎI, 3. TẠO ĐỀ, 4. TRÒ CHƠI, 5. AI TẠO VIDEO */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 mt-5 pt-5 border-t border-slate-800">
                   <button
                     id="tab-documents-btn"
@@ -1169,7 +1169,7 @@ function extractLessonSourceText(lesson?: Lesson): string {
                     className="flex items-center justify-center gap-2 px-3.5 py-3 rounded-2xl font-bold text-xs sm:text-sm transition-all cursor-pointer border bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-amber-400/60 text-amber-300 hover:from-amber-500/30 hover:to-orange-500/30 shadow-[0_0_15px_rgba(245,158,11,0.25)]"
                   >
                     <Sparkles className="w-4 h-4 shrink-0 text-amber-400 animate-pulse" />
-                    <span className="truncate">5. AI TRUYỆN TRANH</span>
+                    <span className="truncate">5. AI TẠO VIDEO</span>
                   </button>
                 </div>
               </div>
